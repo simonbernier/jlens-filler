@@ -1,0 +1,18 @@
+# Core
+torch>=2.3
+transformers>=4.57          # Qwen3.5 / DeepSeek-V4 architectures landed in recent transformers; bump if load fails
+accelerate>=0.34            # device_map="auto" sharding across GPUs
+huggingface_hub>=0.25       # JacobianLens.from_pretrained downloads lens .pt from the Hub
+safetensors>=0.4
+
+# Quantization (needed for DeepSeek V4 Flash on rented GPUs; optional for the 4B dev model)
+bitsandbytes>=0.43          # 4-bit / 8-bit weight loading
+
+# Analysis / plotting
+numpy>=1.26
+pandas>=2.0
+matplotlib>=3.8
+
+# The Jacobian-lens library itself is installed from git in setup_env.sh:
+#   pip install -e ./jacobian-lens
+# (package name: jlens). It is a reference implementation, not on PyPI.

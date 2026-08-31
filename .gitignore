@@ -1,0 +1,47 @@
+# --- Experiment outputs (regenerate by re-running the scripts) ---
+results/
+*.png
+*.csv
+*.jsonl
+algorithm_summary_*.json
+
+# --- Vendored J-lens reference implementation (cloned by setup_env.sh) ---
+jacobian-lens/
+
+# --- Model weights / lens checkpoints (pull from the Hub, never commit) ---
+*.pt
+*.bin
+*.safetensors
+*.ckpt
+*.npz
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- HF / caches ---
+.cache/
+hf_cache/
+wandb/
+
+# --- Secrets ---
+.env
+.env.*
+*.token
+
+# --- Papers / large reference PDFs ---
+*.pdf
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
