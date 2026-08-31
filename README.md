@@ -70,9 +70,29 @@ teaching us something new.
 | `03_accuracy_sweep.py` | **Fig. 2 replication**: accuracy vs filler length k via the DeepSeek API; resumable; binomial SEs + McNemar. |
 | `04_lens_readout.py` | **Fig. 3 data**: greedy answers + both lenses at every (layer, filler/post position); compact CSV. |
 | `05_analyze_lens.py` | Fig. 3 heatmaps (correct/wrong × A1/A2/sum), J-lens−logit-lens difference maps, crystallization + parallelism stats. |
+| `06_build_fig2_dataset.py` | **notebook-style (`# %%`)**: builds the Fig. 2 datasets from compose_facts — knowledge check (≥3/4 standalone trials), filtering, few-shot holdout, k-dots prompts. |
+| `07_fig2_deepseek_api.py` | **notebook-style (`# %%`)**: runs 06's datasets against the API, saves raw/summary results, plots the two-panel Fig. 2. |
+| `data/compose_facts/` | vendored fact files (age/atomic/static) from rgreenblatt/compose_facts. |
 | `tests/test_mock.py` | fake-tokenizer/fake-lens tests of all plumbing; runs with numpy/pandas/matplotlib only. |
 | `ANALYSIS.md` | what algorithm to expect, and what a J-lens advantage (or null) would mean. |
 | `run_deepseek.md` | how to scale to DeepSeek V4 Flash on Runpod/Lambda. |
+
+## Fig. 2 with compose_facts (dots only) — `06` + `07`
+The paper-faithful Fig. 2 path using Ryan Greenblatt's compose_facts fact files
+(paper Appendix A), replacing the hardcoded facts in `paper_tasks.py` for this
+purpose. Both scripts are `# %%` notebooks for VS Code; run 06 top-to-bottom,
+then 07. Both are resumable (caches in `results/*.jsonl`) and have a
+`USE_MOCK = True` switch for a free end-to-end dry run.
+```bash
+export DEEPSEEK_API_KEY=sk-...
+# 06: knowledge check (~2.5k calls) -> filter -> few-shot holdout -> data/fig2_{1,2}fact.jsonl
+# 07: sweep (2 tasks x 6 k x 300 examples = 3600 calls) -> results/fig2_accuracy_vs_k.png
+```
+The built datasets are `.jsonl`, hence gitignored by design: they depend on the
+knowledge check of whichever model/API you ran, so each machine rebuilds its own.
+1-fact holds out 5 facts for few-shot; 2-fact holds out 10 elements → 5 pairs
+(paper Appendix A). k ∈ {0, 5, 10, 25, 50, 100} dots; same fixed test set at
+every k so McNemar applies.
 
 ## The one thing to get right: model ↔ lens matching
 A Jacobian lens is a set of matrices in **one model's** residual-stream basis. Applying it
