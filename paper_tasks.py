@@ -80,6 +80,26 @@ FEWSHOT_PAIRS: List[Tuple[str, str]] = [
     ("krypton", "cerium"),   # 36 + 58 = 94
 ]
 
+# Spelling variants that appear in the stage-1 fact pool (compose_facts) but not
+# in ELEMENTS above. Kept OUT of ELEMENTS so build_dataset's pool stays exactly
+# 100 elements — a duplicate entry would change the seeded sample and could draw
+# a pair of two spellings of one element. Resolve names through atomic_number().
+ELEMENT_ALIASES: Dict[str, str] = {
+    "aluminium": "aluminum",     # IUPAC spelling; stage 1's facts use this one
+    "caesium": "cesium",
+    "sulphur": "sulfur",
+}
+
+
+def atomic_number(name: str) -> int:
+    """Atomic number for an element name, accepting the aliases above.
+
+    Raises KeyError with the offending name, so a genuinely unknown element is
+    still loud rather than silently scored as wrong.
+    """
+    return ELEMENTS[ELEMENT_ALIASES.get(name, name)]
+
+
 FILLER_KINDS = ("dots", "counting", "alphabet", "c-scram", "a-scram")
 
 
@@ -133,11 +153,11 @@ class Example:
 
     @property
     def a1(self) -> int:
-        return ELEMENTS[self.elem_a]
+        return atomic_number(self.elem_a)
 
     @property
     def a2(self) -> int:
-        return ELEMENTS[self.elem_b]
+        return atomic_number(self.elem_b)
 
     @property
     def target(self) -> int:
@@ -154,6 +174,12 @@ def build_dataset(n: int, seed: int = 0) -> List[Example]:
 
     Deterministic in (n, seed); the SAME dataset must be used for every
     (filler kind, k) condition so per-example flips are comparable.
+
+    NOTE: this is a *standalone* sampler with its own FEWSHOT_ELEMENTS holdout.
+    It does NOT reproduce the stage-1 test set, which was drawn from the
+    knowledge-check-filtered pool with a different 10-element holdout — same
+    seed, different examples. To compare local answers against the stage-1 API
+    sweep, load the stage-1 examples with load_fig2_examples() instead.
     """
     pool = sorted(e for e in ELEMENTS if e not in FEWSHOT_ELEMENTS)
     rng = random.Random(seed)
@@ -165,6 +191,58 @@ def build_dataset(n: int, seed: int = 0) -> List[Example]:
         seen.add((a, b))
         pairs.append((a, b))
     return [Example(i, a, b) for i, (a, b) in enumerate(pairs)]
+
+
+def load_fig2_examples(path: str, k: int, n: Optional[int] = None
+                       ) -> List[Tuple[Example, List[dict]]]:
+    """Stage-1's own 2-fact examples for one k, with their exact chat messages.
+
+    `data/fig2_2fact.jsonl` (written by the stage-1 dataset builder) holds one
+    record per (example, k) with the fully rendered `messages` the API actually
+    saw. Replaying those — rather than regenerating a test set here — is what
+    makes local answers comparable to the API sweep example-for-example: same
+    pairs, same `idx`, and the same five few-shot pairs in context.
+
+    Returns [(Example, messages)] ordered by idx, truncated to `n` if given.
+
+    Raises:
+        FileNotFoundError: if `path` is missing (run the stage-1 builder first).
+        ValueError: if `k` is absent from the file, or a record's element pair
+            does not reproduce its recorded target.
+    """
+    import json
+
+    rows, ks_seen = [], set()
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line)
+            ks_seen.add(rec["k"])
+            if rec["k"] == k:
+                rows.append(rec)
+    if not rows:
+        raise ValueError(f"{path} has no k={k} records (found ks: {sorted(ks_seen)})")
+
+    rows.sort(key=lambda r: r["idx"])
+    if n is not None:
+        rows = rows[:n]
+
+    out = []
+    for rec in rows:
+        elem_a, _, elem_b = rec["key"].partition("+")
+        # Names are kept EXACTLY as stage 1 spelled them: ex.question has to
+        # match the stored prompt verbatim for final_filler_char_span() to
+        # locate the filler. atomic_number() resolves the spelling instead.
+        missing = [e for e in (elem_a, elem_b)
+                   if ELEMENT_ALIASES.get(e, e) not in ELEMENTS]
+        if missing:
+            raise ValueError(f"idx {rec['idx']}: unknown element(s) {missing} "
+                             f"in key {rec['key']!r}")
+        ex = Example(int(rec["idx"]), elem_a, elem_b)
+        if ex.target != rec["target"]:
+            raise ValueError(f"idx {rec['idx']}: {rec['key']} sums to {ex.target} "
+                             f"but the record says {rec['target']}")
+        out.append((ex, rec["messages"]))
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -206,7 +284,25 @@ def build_messages(ex: Example, kind: str, k: int) -> List[dict]:
 
 
 def parse_answer(text: str) -> Optional[int]:
-    """First integer in the model's reply, else None."""
+    """First integer in the model's reply, else None.
+
+    Reasoning-aware. A thinking-mode template opens the assistant turn with
+    <think>, and the first integer inside a reasoning trace is usually a list
+    marker ("1.") or a restated operand — scoring that as the model's prediction
+    turns a broken run into one that merely looks wrong, which is far harder to
+    notice. So:
+
+      * a CLOSED block (<think>...</think>) -> parse only what follows it;
+      * an OPEN block with no close -> generation was cut off mid-reasoning.
+        There is no answer; return None so it reads as unparsed rather than as a
+        confident wrong prediction.
+
+    Only fires when the reply is decoded with skip_special_tokens=False.
+    """
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[1]
+    elif "<think>" in text:
+        return None
     m = re.search(r"-?\d+", text)
     return int(m.group()) if m else None
 

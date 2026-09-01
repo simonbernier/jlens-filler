@@ -12,13 +12,13 @@ Stage 1 is API-only (no GPU); stages 2–4 need local weights on a rented GPU bo
 |---|---|---|---|
 | 0 | `00_smoke_test.py` | prove the machine works (API path or GPU/lens path) | anywhere |
 | 1 | `10_build_fig2_dataset.py` → `11_run_fig2_sweep.py` | **Fig. 2**: accuracy vs filler length k, paper-scale n | API (no GPU) |
-| 2 | `20_lens_readout.py` (`LENS="logit"`) → `21_analyze_readout.py` | **Fig. 3**: the paper's logit-lens picture on V4 Flash | GPU box |
+| 2 | `20_lens_readout.py` (`LENS="logit"`) → `21_analyze_readout.py`, `22_agreement_check.py` | **Fig. 3**: the paper's logit-lens picture on V4 Flash, plus a local-vs-API accuracy check | GPU box |
 | 3 | `20_lens_readout.py` (`LENS="jlens"`) → `30_compare_lenses.py` | **the new result**: does the J-lens see more than the logit lens? | GPU box |
 | 4 | `40_attention_study.py` | attention study as in the paper (optional, code ready) | GPU box |
 
 Shared modules (no numbers = not run directly):
 `config.py` (model + lens registry), `common.py` (model/lens loading, provenance
-guard, lens application, and the two guards below), `paper_tasks.py` (torch-free
+guard, lens application, and the three load guards it documents), `paper_tasks.py` (torch-free
 task library: prompts, fixed test set, numeric-token utils, McNemar), `api_common.py` (OpenRouter
 client, provider pin, reasoning-off), `lens_analysis.py` (readout loading +
 "what algorithm?" aggregation for 21/30). `ANALYSIS.md` explains how to read
@@ -52,7 +52,7 @@ OPENROUTER_API_KEY=sk-or-...   # stage 1 (10/11 go through OpenRouter)
 |---|---|---|
 | **environment** | `python -m venv .venv` | `conda create -n jlens-filler python=3.11` |
 | **torch** | CUDA wheel matched to the driver (`cu118`/`cu121`/`cu126`/`cu128` from `nvidia-smi`) | CUDA wheel if you have an NVIDIA GPU, else the CPU-only wheel |
-| **bitsandbytes** | installed (needed for the 4-bit DeepSeek load) | skipped when there is no CUDA, so the rest of the install still succeeds |
+| **bitsandbytes** | installed (for the bf16 side models like `gemma-27b`; DeepSeek does *not* use it) | skipped when there is no CUDA, so the rest of the install still succeeds |
 
 It also clones + `pip install -e`s `anthropics/jacobian-lens`, installs `openai`
 (stage 1) and `ipykernel`/`ipython` (every numbered script except `00` and `40`
@@ -133,7 +133,7 @@ elements → 5 pairs (paper Appendix A); same fixed test set at every k so
 McNemar applies.
 
 ## Stage 2 — the paper's logit-lens picture (GPU box)
-20, 21 and 30 are `# %%` notebooks like 10/11: open one in VS Code, edit the
+20, 21, 22 and 30 are `# %%` notebooks like 10/11: open one in VS Code, edit the
 **Config** cell, run top-to-bottom. In 20 the model load is its own cell, so you
 can re-run the readout loop without paying for it again; 21 and 30 default to
 `TAG = ""`, which picks up whatever 20 wrote last, so the usual loop is *run 20,
@@ -173,8 +173,28 @@ numbers should come from an exact-mode run; `00_smoke_test.py` tells you which
 mode a model gives you before you spend GPU hours. 21 turns
 that into Figure-3-style heatmaps + the "what algorithm?" summary. The logit
 lens is run through `jlens` with `use_jacobian=False`, so stage 3 is an exact
-apples-to-apples upgrade. Use the **same `SEED` as stage 1** (default 0) so
-behavioral and mechanistic results describe the same examples.
+apples-to-apples upgrade. **20 replays stage 1's own examples.** `SOURCE = "fig2"` (the default) reads
+`data/fig2_2fact.jsonl` — stage 1's test set *and its exact rendered prompts* —
+so `idx` joins straight onto `results/fig2_raw.jsonl`. This matters: seeding is
+not enough, because `pt.build_dataset` holds out a different 10 elements for
+few-shot and therefore samples from a different pool. At seed 0 the two test sets
+share **0 of 1500** `idx` values and only 219 of 1500 ordered pairs, so a run
+from the synthetic source cannot be compared to the API sweep at all.
+`SOURCE = "synthetic"` is the fallback for a machine with no stage-1 dataset.
+
+**22 checks that the local weights behave like the API.** The mechanistic story
+only means something if the local model reproduces the behavioral effect, so 22
+pairs `answers_<tag>.csv` against the stage-1 sweep example-for-example and
+reports accuracy, exact-prediction agreement and an exact McNemar per k — then,
+given a local `k=0` run, compares the **uplift** locally against the API's. It
+verifies the join element-pair by element-pair first and refuses to report a
+number if the two sides aren't the same examples.
+```bash
+python 20_lens_readout.py --model deepseek --k 0 --n 300   # baseline: answers only, no lens
+python 22_agreement_check.py --model deepseek
+```
+`k=0` has no filler region, so that run writes greedy answers and skips the lens
+work entirely — it is much cheaper than a readout.
 
 ## Stage 3 — J-lens vs logit-lens (the new result)
 ```bash
@@ -208,8 +228,12 @@ it disagrees with `config.py`. If it warns, trust the provenance and edit the
 `hf_id`.
 
 ## Compute
-- **`dev` (Qwen3.5-4B):** runs on a small GPU, or slowly on CPU (set `dtype="float32"`).
-- **`deepseek`:** 284B MoE — rented multi-GPU + 4-bit only. See `run_deepseek.md`.
+- **`dev` (Qwen3.5-4B):** ~8.0 GB on the GPU with `offload_vision` — fits a 12 GB
+  card. Or slowly on CPU (set `dtype="float32"`).
+- **`deepseek`:** 284B MoE, but it ships already quantized (FP4 experts + FP8
+  elsewhere, ~160 GB), so it loads as published on a rented **4×80GB Hopper** box —
+  no bitsandbytes, which would dequantize it to ~568 GB and OOM. `run_deepseek.md`
+  has the free preflight that tells you whether 4× is enough before you rent.
 - **Stage 1:** API only — no GPU. The paper found uplift robust to API vs local 4-bit.
 - An **inference API cannot be used** for the lens work: the lens needs the
   residual stream, which APIs don't expose. White-box weights are required.

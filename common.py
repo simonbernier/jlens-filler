@@ -19,15 +19,19 @@ Confirmed jlens API used here:
                lens_logits is {layer: Tensor[num_positions, vocab]}
     use_jacobian=False gives the LOGIT-LENS baseline (skips the transport step).
 
-Two things this wrapper fixes that jlens's defaults get wrong for us:
+Three guards live here, each protecting against a failure that is silent or
+expensive rather than obvious:
 
-  * `max_seq_len` — jlens truncates at 512 tokens from the RIGHT by default, and
+  * `fit_seq_len` — jlens truncates at 512 tokens from the RIGHT by default, and
     our positions are negative indices computed on the untruncated text, so a
-    long prompt silently shifts every readout instead of erroring. `fit_seq_len`
-    sizes the window to the prompt. See its docstring.
-  * the vision tower — the dev model is a VL checkpoint whose vision encoder the
-    lens never touches. `offload_vision_tower` parks it in host RAM, which is
-    what makes the dev model fit on a 12 GB card. See its docstring.
+    long prompt silently shifts every readout instead of erroring. It sizes the
+    window to the prompt instead.
+  * `offload_vision_tower` — the dev model is a VL checkpoint whose vision
+    encoder the lens never touches. Parking it in host RAM is what makes the dev
+    model fit on a 12 GB card.
+  * `describe_checkpoint` — refuses to stack bitsandbytes on a checkpoint that
+    already ships quantized, which would dequantize it first and OOM a rented
+    multi-GPU box after you have paid to download it.
 """
 from __future__ import annotations
 
@@ -98,11 +102,56 @@ def report_vram(note: str = "") -> None:
           f"{total:.1f} GiB on {torch.cuda.get_device_name(0)} {note}")
 
 
+def describe_checkpoint(spec: ModelSpec) -> dict:
+    """Print the checkpoint's OWN quantization; refuse to stack bitsandbytes on it.
+
+    DeepSeek V4 Flash ships pre-quantized — MoE expert weights in FP4, the
+    attention/norm/router weights in FP8, ~160 GB across 46 shards. bitsandbytes
+    cannot quantize that further: it would dequantize to bf16 first (284B params
+    -> ~568 GB) and OOM any box you would plausibly rent, *after* you have paid
+    for the download. The same holds for any checkpoint carrying a
+    `quantization_config`: load it as published and let its own scheme do the
+    work.
+
+    Returns the checkpoint's quantization_config as a dict, `{}` if it has none.
+    A config that cannot be read (offline, missing token) warns rather than
+    blocks — this is a guard, not a gate.
+    """
+    try:
+        cfg = transformers.AutoConfig.from_pretrained(
+            spec.hf_id, trust_remote_code=spec.trust_remote_code)
+    except Exception as exc:                       # offline, gated, bad id
+        warnings.warn(f"could not read the config for {spec.hf_id} ({exc}); "
+                      f"skipping the quantization preflight", stacklevel=2)
+        return {}
+
+    qc = getattr(cfg, "quantization_config", None) or {}
+    if qc and not isinstance(qc, dict):
+        qc = qc.to_dict() if hasattr(qc, "to_dict") else {"quant_method": str(qc)}
+    if not qc:
+        return {}
+
+    print(f"[checkpoint] ships quantized: quant_method={qc.get('quant_method')} "
+          f"fmt={qc.get('fmt')} weight_block_size={qc.get('weight_block_size')}")
+    if spec.load_in_4bit:
+        raise ValueError(
+            f"{spec.hf_id} is ALREADY quantized ({qc.get('quant_method')}), but "
+            f"config.py sets load_in_4bit=True for '{spec.key}'. bitsandbytes would "
+            f"have to dequantize the whole checkpoint first and will OOM. Set "
+            f"load_in_4bit=False and dtype='auto' so it loads as published."
+        )
+    return qc
+
+
 def load_model(spec: ModelSpec):
     """Load HF weights per `spec` and wrap them for the lens. Returns (model, hf, tok)."""
+    describe_checkpoint(spec)
     kw = dict(trust_remote_code=spec.trust_remote_code)
 
     if spec.load_in_4bit:
+        if spec.dtype == "auto":
+            raise ValueError("load_in_4bit needs a concrete dtype for "
+                             "bnb_4bit_compute_dtype, not 'auto'")
         kw["quantization_config"] = transformers.BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -110,7 +159,9 @@ def load_model(spec: ModelSpec):
         )
     else:
         # torch_dtype is the widely-supported name; newer transformers also accept `dtype`.
-        kw["torch_dtype"] = getattr(torch, spec.dtype)
+        # "auto" defers to the checkpoint's own torch_dtype / quantization_config, which is
+        # what a pre-quantized checkpoint needs — naming a dtype can force a silent upcast.
+        kw["torch_dtype"] = "auto" if spec.dtype == "auto" else getattr(torch, spec.dtype)
 
     if spec.device_map:
         kw["device_map"] = spec.device_map

@@ -1,8 +1,8 @@
 # %% [markdown]
 # # Stage 2/3 — lens readout over the filler region (GPU box)
 #
-# For each example (2-fact addition, chat format, fixed test set shared with the
-# stage-1 sweep via `SEED`):
+# For each example (2-fact addition, chat format, replaying the stage-1 sweep's
+# own fixed test set — see `SOURCE`):
 #
 # 1. greedy-generate the model's answer → correct / wrong split (paper Fig. 3
 #    separates the two);
@@ -25,10 +25,6 @@
 # *would* shift them, which is why every lens call goes through
 # `common.apply_lens` with `MAX_SEQ_LEN = None` — see `common.fit_seq_len`.
 #
-# Run cells top-to-bottom in VS Code (`# %%` = one Jupyter cell). Cell 1 is the
-# slow one; re-run cell 5 freely without reloading the model. The same file still
-# runs headless on a rented box:
-#
 # ```bash
 # python 20_lens_readout.py --model dev --n 40 --k 10                # pipe-clean
 # python 20_lens_readout.py --model deepseek --n 300 --k 10 --lens both
@@ -39,7 +35,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -52,8 +48,18 @@ LENS = "logit"         # "logit" (stage 2) | "jlens" (stage 3) | "both" (one pas
 FILLER = "dots"        # see paper_tasks.FILLER_KINDS
 K = 10                 # filler length
 N = 300                # examples
-SEED = 0               # SAME seed as stage 1, or the two stages describe different examples
 POS_CHUNK = 16         # positions per lens.apply call (memory knob)
+
+# Where the examples come from. "fig2" REPLAYS stage 1's own test set and its
+# exact rendered prompts from data/fig2_2fact.jsonl — same pairs, same idx, same
+# five few-shot pairs in context — which is what makes local answers comparable
+# to the API sweep example-for-example (see 22_agreement_check.py). "synthetic"
+# regenerates a test set from paper_tasks.build_dataset for a machine that has
+# no stage-1 dataset; those examples are NOT the stage-1 ones, so an agreement
+# check against fig2_raw.jsonl is meaningless. Falls back with a warning.
+SOURCE = "fig2"        # "fig2" | "synthetic"
+FIG2_PATH = "data/fig2_2fact.jsonl"
+SEED = 0               # synthetic source only
 POST_TAIL_MAX = 8      # post-filler token positions to read (incl. "Answer:")
 MAX_SEQ_LEN = None     # None = size the context window to each prompt; never truncate
 REGEN_ANSWERS = False  # re-generate greedy answers even if answers_<tag>.csv exists
@@ -79,7 +85,10 @@ if _running_as_script() and len(sys.argv) > 1:
     ap.add_argument("--filler", default=FILLER, choices=list(pt.FILLER_KINDS))
     ap.add_argument("--k", type=int, default=K)
     ap.add_argument("--n", type=int, default=N)
-    ap.add_argument("--seed", type=int, default=SEED, help="same seed as stage 1!")
+    ap.add_argument("--source", default=SOURCE, choices=["fig2", "synthetic"],
+                    help="fig2 = replay stage 1's examples and prompts (default)")
+    ap.add_argument("--fig2-path", default=FIG2_PATH)
+    ap.add_argument("--seed", type=int, default=SEED, help="synthetic source only")
     ap.add_argument("--pos-chunk", type=int, default=POS_CHUNK,
                     help="positions per lens.apply call (memory knob)")
     ap.add_argument("--max-seq-len", type=int, default=MAX_SEQ_LEN,
@@ -89,6 +98,7 @@ if _running_as_script() and len(sys.argv) > 1:
     _a = ap.parse_args()
     MODEL, LENS, FILLER, K, N, SEED = (_a.model, _a.lens, _a.filler,
                                        _a.k, _a.n, _a.seed)
+    SOURCE, FIG2_PATH = _a.source, _a.fig2_path
     POS_CHUNK, MAX_SEQ_LEN = _a.pos_chunk, _a.max_seq_len
     REGEN_ANSWERS, OUTDIR = _a.regen_answers, _a.outdir
 
@@ -97,7 +107,7 @@ TAG = f"{MODEL}_{FILLER}-{K}"
 OUT_CSV = os.path.join(OUTDIR, f"lens_readout_{TAG}_{LENS}.csv")
 ANS_CSV = os.path.join(OUTDIR, f"answers_{TAG}.csv")
 LENSES = LENS_CHOICES[LENS]
-print(f"{TAG}  lens={LENS}  n={N}  seed={SEED}\n  -> {OUT_CSV}\n  -> {ANS_CSV}")
+print(f"{TAG}  lens={LENS}  n={N}  source={SOURCE}\n  -> {OUT_CSV}\n  -> {ANS_CSV}")
 
 # %% [markdown]
 # ## 1. Load the model, the lens, and the numeric decode criterion
@@ -141,18 +151,22 @@ if numeric.mode == "prefix":
 # re-tokenization may prepend.
 
 # %%
-def render_chat(tok, ex: pt.Example, kind: str, k: int) -> str:
-    msgs = pt.build_messages(ex, kind, k)
+def render_chat(tok, msgs: list[dict]) -> str:
     return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
 
 def locate_positions(tok, text: str, ex: pt.Example, kind: str, k: int
-                     ) -> Tuple[List[int], int]:
+                     ) -> tuple[list[int], int]:
     """Return (negative token positions, n_filler).
 
     The first n_filler entries are filler positions, in order; the rest are the
-    post-filler tail.
+    post-filler tail. k=0 has no filler region and therefore nothing to read
+    out: it returns no positions, and the run degenerates to greedy answers
+    only — which is exactly what the k=0 baseline is for (22_agreement_check.py
+    needs it to compute uplift).
     """
+    if k == 0:
+        return [], 0
     filler = pt.make_filler(kind, k)
     enc = tok(text, add_special_tokens=False, return_offsets_mapping=True)
     offsets = enc["offset_mapping"]
@@ -179,11 +193,11 @@ def readout_example(
     positions: Sequence[int],
     n_filler: int,
     correct: bool,
-    apply_fn: Callable[[str, Sequence[int], bool], Dict[int, np.ndarray]],
+    apply_fn: Callable[[str, Sequence[int], bool], dict[int, np.ndarray]],
     numeric: pt.NumericReadout,
-    lenses: Sequence[Tuple[str, bool]],
+    lenses: Sequence[tuple[str, bool]],
     pos_chunk: int = 16,
-) -> List[dict]:
+) -> list[dict]:
     rows = []
     quantities = (("A1", ex.a1), ("A2", ex.a2), ("sum", ex.target))
     for lens_name, use_j in lenses:
@@ -227,13 +241,39 @@ def answer(text: str) -> str:
 # %% [markdown]
 # ## 4. Dataset + cached greedy answers
 #
+# `SOURCE = "fig2"` replays stage 1's own examples **and its exact rendered
+# prompts**, so `idx` joins straight onto `results/fig2_raw.jsonl` and
+# `22_agreement_check.py` can pair local answers against API answers. Note that
+# `pt.build_dataset` (the `"synthetic"` source) does *not* reproduce that test
+# set at any seed — it holds out a different 10 elements for few-shot, so it
+# draws from a different pool. Use it only where there is no stage-1 dataset.
+#
 # Greedy answers are identical for every lens choice, so a `LENS = "jlens"` pass
 # reuses the generations from the `"logit"` pass via `answers_<tag>.csv`.
 
 # %%
-dataset = pt.build_dataset(N, seed=SEED)
+dataset: list[tuple[pt.Example, list[dict]]] = []
+if SOURCE == "fig2":
+    if FILLER != "dots":
+        raise ValueError(f"the stage-1 dataset is dots-only; FILLER={FILLER!r} "
+                         f"needs SOURCE='synthetic'")
+    if os.path.exists(FIG2_PATH):
+        dataset = pt.load_fig2_examples(FIG2_PATH, K, n=N)
+        print(f"[data] replaying stage 1: {len(dataset)} examples from "
+              f"{FIG2_PATH} at k={K} (idx joins onto results/fig2_raw.jsonl)")
+    else:
+        import warnings
+        warnings.warn(f"{FIG2_PATH} not found — falling back to a SYNTHETIC test "
+                      f"set. These are NOT the stage-1 examples, so do not run "
+                      f"22_agreement_check.py against the result.")
+        SOURCE = "synthetic"
+if SOURCE == "synthetic":
+    dataset = [(ex, pt.build_messages(ex, FILLER, K))
+               for ex in pt.build_dataset(N, seed=SEED)]
+    print(f"[data] synthetic test set: {len(dataset)} examples, seed={SEED} "
+          f"(not comparable to the stage-1 API sweep)")
 
-cached_answers: Dict[int, dict] = {}
+cached_answers: dict[int, dict] = {}
 if os.path.exists(ANS_CSV) and not REGEN_ANSWERS:
     cached_answers = {int(r["idx"]): dict(r)
                       for _, r in pd.read_csv(ANS_CSV).iterrows()}
@@ -241,8 +281,9 @@ if os.path.exists(ANS_CSV) and not REGEN_ANSWERS:
 
 # One prompt's worth of bookkeeping up front: how long these prompts actually
 # are, so a context-window surprise shows up here and not as a bad heatmap.
-_probe = render_chat(tok, dataset[0], FILLER, K)
-_probe_pos, _probe_nf = locate_positions(tok, _probe, dataset[0], FILLER, K)
+_ex0, _msgs0 = dataset[0]
+_probe = render_chat(tok, _msgs0)
+_probe_pos, _probe_nf = locate_positions(tok, _probe, _ex0, FILLER, K)
 print(f"[prompt] {len(tok(_probe, add_special_tokens=False).input_ids)} tokens, "
       f"{len(_probe_pos)} readout positions ({_probe_nf} filler) — "
       f"max_seq_len={MAX_SEQ_LEN if MAX_SEQ_LEN else 'fitted per prompt'}")
@@ -255,13 +296,13 @@ print(f"[prompt] {len(tok(_probe, add_special_tokens=False).input_ids)} tokens, 
 # model.
 
 # %%
-all_rows: List[dict] = []
-answers: List[dict] = []
+all_rows: list[dict] = []
+answers: list[dict] = []
 n_filler = n_positions = 0
 max_prompt_tokens = 0
 
-for i, ex in enumerate(tqdm(dataset, desc=f"readout ({LENS})", unit="ex")):
-    text = render_chat(tok, ex, FILLER, K)
+for i, (ex, msgs) in enumerate(tqdm(dataset, desc=f"readout ({LENS})", unit="ex")):
+    text = render_chat(tok, msgs)
     positions, n_filler = locate_positions(tok, text, ex, FILLER, K)
     n_positions = len(positions)
     max_prompt_tokens = max(max_prompt_tokens,
@@ -280,11 +321,13 @@ for i, ex in enumerate(tqdm(dataset, desc=f"readout ({LENS})", unit="ex")):
                             reply=str(reply).strip()[:32], pred=pred,
                             correct=correct))
 
-    all_rows += readout_example(ex, text, positions, n_filler, correct,
-                                apply_fn, numeric, LENSES, pos_chunk=POS_CHUNK)
+    if positions:                     # k=0 has no filler region: answers only
+        all_rows += readout_example(ex, text, positions, n_filler, correct,
+                                    apply_fn, numeric, LENSES, pos_chunk=POS_CHUNK)
 
     if (i + 1) % 10 == 0 or i == 0:
-        pd.DataFrame(all_rows).to_csv(OUT_CSV, index=False)
+        if all_rows:
+            pd.DataFrame(all_rows).to_csv(OUT_CSV, index=False)
         pd.DataFrame(answers).to_csv(ANS_CSV, index=False)
 
 print(f"running accuracy: {np.mean([a['correct'] for a in answers]):.2%}")
@@ -297,21 +340,30 @@ print(f"running accuracy: {np.mean([a['correct'] for a in answers]):.2%}")
 # should drift toward A1/A2/sum as the layer index rises.
 
 # %%
-readout = pd.DataFrame(all_rows)
 answers_df = pd.DataFrame(answers)
-readout.to_csv(OUT_CSV, index=False)
 answers_df.to_csv(ANS_CSV, index=False)
-
-print(f"wrote {OUT_CSV} ({len(readout)} rows; {n_positions} positions/example, "
-      f"{n_filler} filler; readout mode={numeric.mode})")
 print(f"wrote {ANS_CSV}  (accuracy {answers_df.correct.mean():.2%})")
 print(f"longest prompt seen: {max_prompt_tokens} tokens")
 
-peek = (readout[(readout.pos == n_filler - 1) & readout.correct]
-        .groupby(["lens", "layer"])[["match_A1", "match_A2", "match_sum"]]
-        .mean().round(3))
-print("\ndecode fraction at the last filler position (correct examples):")
-print(peek.to_string())
-print(f"\nnext: 21_analyze_readout.py (TAG = {TAG!r})")
+if not all_rows:                      # k=0: the baseline run, answers only
+    print(f"\nk=0 has no filler region, so no lens rows were written — this run "
+          f"is the no-filler baseline. Next: 22_agreement_check.py, which needs "
+          f"it to compare local uplift against the API's.")
+else:
+    readout = pd.DataFrame(all_rows)
+    readout.to_csv(OUT_CSV, index=False)
+    print(f"wrote {OUT_CSV} ({len(readout)} rows; {n_positions} positions/example, "
+          f"{n_filler} filler; readout mode={numeric.mode})")
+
+    last = readout[(readout.pos == n_filler - 1) & readout.correct]
+    print("\ndecode fraction at the last filler position (correct examples):")
+    if last.empty:
+        print("  (no correct examples in this run — nothing to peek at)")
+    else:
+        print(last.groupby(["lens", "layer"])[["match_A1", "match_A2", "match_sum"]]
+                  .mean().round(3).to_string())
+    print(f"\nnext: 21_analyze_readout.py (TAG = {TAG!r})")
+    if SOURCE == "fig2":
+        print("      22_agreement_check.py to check local accuracy against the API")
 
 # %%

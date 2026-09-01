@@ -15,9 +15,8 @@
 # * `fig3_<tag>_<lens>.png` — heatmaps: correct/wrong × A1/A2/sum, per lens
 # * `algorithm_summary_<tag>_<lens...>.json` + a printed report
 #
-# Run cells top-to-bottom in VS Code (`# %%` = one Jupyter cell). `TAG = ""`
-# picks up whatever `20_lens_readout.py` wrote last, so the usual flow is: run
-# 20, run this, look at the figure. Headless equivalent:
+# `TAG = ""` picks up whatever `20_lens_readout.py` wrote last, so the usual flow 
+# is: run 20, run this, look at the figure. Headless equivalent:
 #
 # ```bash
 # python 21_analyze_readout.py --readout results/lens_readout_deepseek_dots-10_logit.csv
@@ -32,11 +31,20 @@ import sys
 
 import matplotlib.pyplot as plt
 
-from lens_analysis import (QUANTITIES, algorithm_summary, find_readouts, grid,
-                           load, mode_note, n_filler_of, print_report,
-                           readout_mode, tag_of)
+from lens_analysis import (
+    QUANTITIES,
+    algorithm_summary,
+    find_readouts,
+    grid,
+    load,
+    mode_note,
+    n_filler_of,
+    print_report,
+    readout_mode,
+    tag_of,
+)
 
-TAG = ""            # "" = the most recently written condition in OUTDIR
+TAG = "dev_dots-10"        # "" = the most recently written condition in OUTDIR
 OUTDIR = "results"
 READOUTS: list[str] = []   # set explicitly to override the TAG lookup
 

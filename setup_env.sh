@@ -17,7 +17,7 @@
 #   TORCH_VARIANT=auto|cuda|cpu|skip  torch build (default: auto = CUDA if a GPU
 #                                     is present, else the CPU wheel)
 #   CUDA_TAG=cu128                  force a specific PyTorch CUDA index
-#   SKIP_BNB=1                      skip bitsandbytes (it is CUDA-only)
+#   SKIP_BNB=1                      skip bitsandbytes (CUDA-only; DeepSeek does not need it)
 #   HF_TOKEN=hf_...                 Hugging Face auth for gated weights
 # =============================================================================
 set -euo pipefail
@@ -201,7 +201,8 @@ fi
 
 # ---------------------------------------------------------------------------
 # 4. Project dependencies
-#    bitsandbytes is CUDA-only (4-bit loading of DeepSeek V4 Flash); on a
+#    bitsandbytes is CUDA-only (4-bit loading of the bf16 side models such as
+#    gemma-27b; DeepSeek V4 Flash ships pre-quantized and does not use it). On a
 #    CPU/macOS box it is skipped so the rest of the install still succeeds.
 # ---------------------------------------------------------------------------
 say "Installing project requirements"
@@ -209,7 +210,7 @@ if [ "$HAS_GPU" -eq 0 ] || [ "${SKIP_BNB:-0}" = "1" ]; then
   grep -v -i '^[[:space:]]*bitsandbytes' requirements.txt > /tmp/req_nobnb.$$.txt
   "$PY" -m pip install -r /tmp/req_nobnb.$$.txt
   rm -f /tmp/req_nobnb.$$.txt
-  echo "(skipped bitsandbytes - no CUDA GPU here; it is only needed for 4-bit DeepSeek loads)"
+  echo "(skipped bitsandbytes - no CUDA GPU here; only the bf16 side models use it)"
 else
   "$PY" -m pip install -r requirements.txt
 fi
@@ -280,7 +281,7 @@ try:
     import bitsandbytes  # noqa: F401
     print("bitsandbytes OK")
 except Exception:
-    print("bitsandbytes not installed (CUDA-only; needed for 4-bit DeepSeek V4 Flash)")
+    print("bitsandbytes not installed (CUDA-only; for bf16 side models, not DeepSeek)")
 PYCHECK
 
 # ---------------------------------------------------------------------------

@@ -4,8 +4,10 @@ Model + lens registry for the filler-token / Jacobian-lens project.
 Two entries:
   - "dev"      : Qwen3.5-4B. Small enough to develop and troubleshoot on a
                  single small GPU (or slowly on CPU). Has a published J-lens.
-  - "deepseek" : DeepSeek V4 Flash (284B MoE). The real target. Needs rented
-                 multi-GPU + 4-bit. See run_deepseek.md before using it.
+  - "deepseek" : DeepSeek V4 Flash (284B MoE). The real target. Ships already
+                 quantized (FP4 experts + FP8 elsewhere, ~160 GB) and is loaded
+                 as published — do NOT add bitsandbytes on top. Needs a rented
+                 4x80GB box; see run_deepseek.md before using it.
 
 IMPORTANT — model/lens matching:
   A Jacobian lens is a set of matrices tied to ONE model's residual-stream
@@ -32,9 +34,16 @@ class ModelSpec:
     hf_id: str                      # HuggingFace repo for the *weights*
     lens_dir: str                   # subdir inside LENS_REPO
     # --- how to load the weights (passed to AutoModelForCausalLM.from_pretrained) ---
-    dtype: str = "bfloat16"         # "bfloat16" | "float16" | "float32"
+    # "bfloat16" | "float16" | "float32", or "auto" to defer to the checkpoint's
+    # own torch_dtype/quantization_config — which is what an already-quantized
+    # checkpoint needs, since naming a dtype can force a silent upcast.
+    dtype: str = "bfloat16"
     device_map: Optional[str] = None  # None = single device; "auto" = shard across GPUs
-    load_in_4bit: bool = False      # bitsandbytes 4-bit (for the big model)
+    # bitsandbytes nf4. ONLY for checkpoints published in bf16/fp16. On a
+    # checkpoint that already carries a quantization_config, bnb must dequantize
+    # to bf16 before re-quantizing, which OOMs; common.describe_checkpoint
+    # refuses that combination up front.
+    load_in_4bit: bool = False
     trust_remote_code: bool = True  # DeepSeek/Qwen custom modeling code
     # Park a VL checkpoint's vision encoder in host RAM after loading. The lens
     # only ever sees input_ids, so the encoder is dead weight on the GPU — but
@@ -82,7 +91,12 @@ REGISTRY = {
     "gemma-27b": ModelSpec(
         key="gemma-27b", hf_id="google/gemma-3-27b-it", lens_dir="gemma-3-27b-it",
         device_map="auto", load_in_4bit=True,
-        notes="Different family — useful for checking findings aren't Qwen-specific.",
+        notes="Different family — useful for checking findings aren't Qwen-specific. "
+              "Published in bf16, so bitsandbytes nf4 is legitimate here and is what "
+              "gets 27B onto one card. Same caveat as the dev model though: the J "
+              "matrices were fit in the bf16 residual basis, so treat 4-bit numbers "
+              "as a shape check, not a headline. bf16 on one 80GB card (~54GB) if you "
+              "have one.",
     ),
 
     # ---------------------------------------------------------------------
@@ -92,12 +106,19 @@ REGISTRY = {
         key="deepseek",
         hf_id="deepseek-ai/DeepSeek-V4-Flash",  # 284B MoE; verify the exact snapshot you rent for
         lens_dir="deepseek-v4-flash",
-        dtype="bfloat16",
+        dtype="auto",                # defer to the checkpoint's own FP8 quantization_config
         device_map="auto",           # shard across all visible GPUs
-        load_in_4bit=True,           # ~4-bit to fit on a reasonable multi-GPU box
+        load_in_4bit=False,          # it ALREADY ships quantized — see notes
         trust_remote_code=True,
-        notes="284B MoE. Needs multi-GPU (see run_deepseek.md). API access will NOT work: "
-              "the lens needs the residual stream, which inference APIs do not expose.",
+        notes="284B MoE (13B active), 43 layers, d_model 4096, 256 experts. Ships "
+              "pre-quantized: MoE expert weights FP4, attention/norm/router FP8, "
+              "~160GB over 46 shards. Load it exactly as published — bitsandbytes on "
+              "top would dequantize to bf16 (~568GB) and OOM. 160GB fits 4x80GB with "
+              "2x headroom; go 8x80GB if transformers turns out to upcast the FP4 "
+              "experts (check that for free before renting — see run_deepseek.md). "
+              "Hopper or newer: Ampere has no FP8 units and would upcast. API access "
+              "will NOT work: the lens needs the residual stream, which inference "
+              "APIs do not expose.",
     ),
 }
 
