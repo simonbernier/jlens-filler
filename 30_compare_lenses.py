@@ -1,39 +1,102 @@
-"""
-Stage 3 — the J-lens vs logit-lens comparison (the new result over the paper).
+# %% [markdown]
+# # Stage 3 — J-lens vs logit-lens (the new result over the paper)
+#
+# Takes readout CSVs from `20_lens_readout.py` that together cover BOTH lenses
+# for one condition (either one `LENS = "both"` file, or the stage-2 logit file
+# plus a jlens file), and asks where the Jacobian lens sees more than the paper's
+# logit-lens readout:
+#
+# * difference maps (J-lens − logit-lens decode fraction) per quantity;
+# * per-layer curves of the best-over-positions decode fraction, per lens — a
+#   leftward J-lens shift = earlier crystallization than the logit lens can read
+#   (see `ANALYSIS.md` for what each outcome would mean);
+# * a side-by-side algorithm summary (first-layer medians, in-filler fractions).
+#
+# Outputs in `results/`:
+#
+# * `jlens_vs_logit_<tag>.png`
+# * `compare_summary_<tag>.json` + a printed report
+#
+# Run cells top-to-bottom in VS Code (`# %%` = one Jupyter cell). `TAG = ""`
+# picks up the most recently written condition and merges every lens file it has.
+# Headless equivalent:
+#
+# ```bash
+# python 30_compare_lenses.py --readout results/lens_readout_deepseek_dots-10_logit.csv \
+#                                       results/lens_readout_deepseek_dots-10_jlens.csv
+# ```
 
-Takes readout CSVs from 20 that together cover BOTH lenses for one condition
-(either one `--lens both` file, or the stage-2 logit file plus a jlens file),
-and asks where the Jacobian lens sees more than the paper's logit-lens readout:
-
-  * difference maps (J-lens − logit-lens decode fraction) per quantity;
-  * per-layer curves of the best-over-positions decode fraction, per lens —
-    a leftward J-lens shift = earlier crystallization than the logit lens
-    can read (see ANALYSIS.md for what each outcome would mean);
-  * a side-by-side algorithm summary (first-layer medians, in-filler fractions).
-
-Outputs (results/):
-    jlens_vs_logit_<tag>.png
-    compare_summary_<tag>.json + printed report
-
-Run:
-    python 30_compare_lenses.py --readout results/lens_readout_deepseek_dots-10_logit.csv \
-                                          results/lens_readout_deepseek_dots-10_jlens.csv
-"""
+# %% Config
 from __future__ import annotations
 
-import argparse
 import json
 import os
+import sys
 
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from lens_analysis import (QUANTITIES, algorithm_summary, grid, load,
-                           n_filler_of, print_report, tag_of)
+from lens_analysis import (QUANTITIES, algorithm_summary, find_readouts, grid,
+                           load, mode_note, n_filler_of, print_report,
+                           readout_mode, tag_of)
+
+TAG = ""            # "" = the most recently written condition in OUTDIR
+OUTDIR = "results"
+READOUTS: list[str] = []   # set explicitly to override the TAG lookup
 
 
+def _running_as_script() -> bool:
+    """True for `python 30_compare_lenses.py ...`; False in a notebook cell."""
+    return __name__ == "__main__" and "ipykernel" not in sys.modules
+
+
+if _running_as_script() and len(sys.argv) > 1:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--readout", nargs="+", default=None,
+                    help="readout CSV(s) from 20 covering both lenses for one "
+                         "condition (one 'both' file, or logit + jlens files)")
+    ap.add_argument("--tag", default=TAG,
+                    help="condition tag, e.g. deepseek_dots-10 (default: newest)")
+    ap.add_argument("--outdir", default=None)
+    _a = ap.parse_args()
+    READOUTS, TAG = _a.readout or [], _a.tag
+    if _a.outdir:
+        OUTDIR = _a.outdir
+    elif READOUTS:
+        OUTDIR = os.path.dirname(READOUTS[0]) or "."
+
+READOUTS = READOUTS or find_readouts(TAG, OUTDIR)
+TAG = tag_of(READOUTS[0])
+print(f"tag {TAG!r}, {len(READOUTS)} file(s):")
+for p in READOUTS:
+    print("  ", p)
+
+# %% [markdown]
+# ## 1. Load both lenses for one condition
+
+# %%
+df = load(READOUTS)
+lenses = set(df.lens.unique())
+assert {"jlens", "logit"} <= lenses, (
+    f"need both lenses, found {sorted(lenses)} — run 20 with the missing lens "
+    f"(or LENS = 'both') so this condition has both CSVs")
+n_filler = n_filler_of(df)
+print(f"{df.idx.nunique()} examples | {df.layer.nunique()} layers | "
+      f"{df.pos.nunique()} positions ({n_filler} filler) | "
+      f"decode mode: {readout_mode(df)} | "
+      f"accuracy {df.groupby('idx')['correct'].first().mean():.2%}")
+
+# %% [markdown]
+# ## 2. Difference maps + per-layer decode curves
+#
+# Top row: J-lens − logit-lens decode fraction (red = the J-lens reads a quantity
+# the logit lens misses). Bottom row: for each lens, the best decode fraction
+# over positions at each layer — a leftward shift of the J-lens curve means the
+# quantity is present earlier than the logit lens can see. Correct examples only.
+
+# %%
 def compare_lenses(df, n_filler: int, tag: str, outdir: str):
     cor = df[df.correct]
     fig, axes = plt.subplots(2, 3, figsize=(12, 6.5))
@@ -61,43 +124,30 @@ def compare_lenses(df, n_filler: int, tag: str, outdir: str):
         if c == 0:
             ax2.set_ylabel("decode fraction")
             ax2.legend(frameon=False)
-    fig.suptitle(f"J-lens vs logit-lens (correct examples) — {tag}")
+    fig.suptitle(f"J-lens vs logit-lens (correct examples) — {tag}{mode_note(df)}")
     fig.tight_layout()
     path = os.path.join(outdir, f"jlens_vs_logit_{tag}.png")
     fig.savefig(path, dpi=150)
-    plt.close(fig)
     print(f"wrote {path}")
+    plt.show()
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--readout", required=True, nargs="+",
-                    help="readout CSV(s) from 20 covering both lenses for one "
-                         "condition (one --lens both file, or logit + jlens files)")
-    ap.add_argument("--outdir", default=None)
-    args = ap.parse_args()
+compare_lenses(df, n_filler, TAG, OUTDIR)
 
-    outdir = args.outdir or os.path.dirname(args.readout[0]) or "."
-    tag = tag_of(args.readout[0])
-    df = load(args.readout)
-    lenses = set(df.lens.unique())
-    assert {"jlens", "logit"} <= lenses, (
-        f"need both lenses, found {sorted(lenses)} — run 20 with --lens jlens "
-        f"(or --lens both) and pass both CSVs")
-    n_filler = n_filler_of(df)
-    print(f"{df.idx.nunique()} examples | {df.layer.nunique()} layers | "
-          f"{df.pos.nunique()} positions ({n_filler} filler) | "
-          f"accuracy {df.groupby('idx')['correct'].first().mean():.2%}")
+# %% [markdown]
+# ## 3. Side-by-side algorithm summary
+#
+# The same aggregation 21 prints, but with both lenses in one report so the
+# first-decode layers and in-filler fractions line up column-for-column.
+# A J-lens advantage = higher decoded-in-filler fractions and/or a smaller
+# first-decode layer at matched positions.
 
-    compare_lenses(df, n_filler, tag, outdir)
+# %%
+summary = algorithm_summary(df, n_filler)
+js = os.path.join(OUTDIR, f"compare_summary_{TAG}.json")
+with open(js, "w") as f:
+    json.dump(summary, f, indent=2)
+print(f"wrote {js}")
+print_report(summary)
 
-    summary = algorithm_summary(df, n_filler)
-    js = os.path.join(outdir, f"compare_summary_{tag}.json")
-    with open(js, "w") as f:
-        json.dump(summary, f, indent=2)
-    print(f"wrote {js}")
-    print_report(summary)
-
-
-if __name__ == "__main__":
-    main()
+# %%

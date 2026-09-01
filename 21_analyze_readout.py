@@ -1,34 +1,98 @@
-"""
-Stage 2 analysis — Figure-3-style heatmaps + the "what algorithm?" summary,
-for whichever lens(es) a readout CSV contains.
+# %% [markdown]
+# # Stage 2 analysis — Figure-3 heatmaps + the "what algorithm?" summary
+#
+# Stage 2 is the paper replication proper: run `20_lens_readout.py` with
+# `LENS = "logit"`, then this notebook reproduces the paper's logit-lens picture
+# on DeepSeek V4 Flash — decode-fraction heatmaps over layer × position, correct
+# vs wrong examples, A1/A2/sum.
+#
+# It works identically on a `jlens` or a `both` readout (one figure per lens
+# present). The J-lens **vs** logit-lens comparison lives in
+# `30_compare_lenses.py`.
+#
+# Outputs in `results/`:
+#
+# * `fig3_<tag>_<lens>.png` — heatmaps: correct/wrong × A1/A2/sum, per lens
+# * `algorithm_summary_<tag>_<lens...>.json` + a printed report
+#
+# Run cells top-to-bottom in VS Code (`# %%` = one Jupyter cell). `TAG = ""`
+# picks up whatever `20_lens_readout.py` wrote last, so the usual flow is: run
+# 20, run this, look at the figure. Headless equivalent:
+#
+# ```bash
+# python 21_analyze_readout.py --readout results/lens_readout_deepseek_dots-10_logit.csv
+# ```
 
-Stage 2 is the paper replication proper: run 20 with --lens logit, then this
-script reproduces the paper's logit-lens picture on DeepSeek V4 Flash
-(decode-fraction heatmaps over layer x position, correct vs wrong examples,
-A1/A2/sum). It works identically on a jlens or both readout — the J-lens vs
-logit-lens COMPARISON lives in 30_compare_lenses.py.
-
-Outputs (results/):
-    fig3_<tag>_<lens>.png        heatmaps: correct/wrong x A1/A2/sum (per lens)
-    algorithm_summary_<tag>_<lens...>.json + printed report
-
-Run:
-    python 21_analyze_readout.py --readout results/lens_readout_deepseek_dots-10_logit.csv
-"""
+# %% Config
 from __future__ import annotations
 
-import argparse
 import json
 import os
+import sys
 
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from lens_analysis import (QUANTITIES, algorithm_summary, grid, load,
-                           n_filler_of, print_report, tag_of)
+from lens_analysis import (QUANTITIES, algorithm_summary, find_readouts, grid,
+                           load, mode_note, n_filler_of, print_report,
+                           readout_mode, tag_of)
+
+TAG = ""            # "" = the most recently written condition in OUTDIR
+OUTDIR = "results"
+READOUTS: list[str] = []   # set explicitly to override the TAG lookup
 
 
+def _running_as_script() -> bool:
+    """True for `python 21_analyze_readout.py ...`; False in a notebook cell."""
+    return __name__ == "__main__" and "ipykernel" not in sys.modules
+
+
+if _running_as_script() and len(sys.argv) > 1:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--readout", nargs="+", default=None,
+                    help="results/lens_readout_<tag>_<lens>.csv from 20 "
+                         "(several files of the same tag are merged)")
+    ap.add_argument("--tag", default=TAG,
+                    help="condition tag, e.g. deepseek_dots-10 (default: newest)")
+    ap.add_argument("--outdir", default=None)
+    _a = ap.parse_args()
+    READOUTS, TAG = _a.readout or [], _a.tag
+    if _a.outdir:
+        OUTDIR = _a.outdir
+    elif READOUTS:
+        OUTDIR = os.path.dirname(READOUTS[0]) or "."
+
+READOUTS = READOUTS or find_readouts(TAG, OUTDIR)
+TAG = tag_of(READOUTS[0])
+print(f"tag {TAG!r}, {len(READOUTS)} file(s):")
+for p in READOUTS:
+    print("  ", p)
+
+# %% [markdown]
+# ## 1. Load the readout
+#
+# `load` merges the CSVs, joins the ground truth from `answers_<tag>.csv`, and
+# refuses a readout written before the tokenizer-aware decode criterion existed.
+
+# %%
+df = load(READOUTS)
+n_filler = n_filler_of(df)
+lenses = sorted(df.lens.unique())
+print(f"{df.idx.nunique()} examples | {df.layer.nunique()} layers | "
+      f"{df.pos.nunique()} positions ({n_filler} filler) | lenses: {lenses} | "
+      f"decode mode: {readout_mode(df)} | "
+      f"accuracy {df.groupby('idx')['correct'].first().mean():.2%}")
+
+# %% [markdown]
+# ## 2. Figure 3 — decode fraction over layer × position
+#
+# One figure per lens in the readout. Rows are correct / wrong examples, columns
+# are A1 / A2 / sum; the dashed line marks the end of the filler region. The
+# paper's signature for wrong examples is A1 and A2 present but sum absent —
+# retrieval without composition.
+
+# %%
 def fig3(df, lens: str, n_filler: int, tag: str, outdir: str):
     sub = df[df.lens == lens]
     n_cor = sub[sub.correct].idx.nunique()
@@ -57,40 +121,33 @@ def fig3(df, lens: str, n_filler: int, tag: str, outdir: str):
     if im is not None:
         fig.colorbar(im, ax=axes, fraction=0.03, pad=0.02,
                      label="fraction of examples decoded (top numeric token)")
-    fig.suptitle(f"{lens} — 2-fact addition, {tag}")
+    fig.suptitle(f"{lens} — 2-fact addition, {tag}{mode_note(df)}")
     path = os.path.join(outdir, f"fig3_{tag}_{lens}.png")
     fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
     print(f"wrote {path}")
+    plt.show()
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--readout", required=True, nargs="+",
-                    help="results/lens_readout_<tag>_<lens>.csv from 20 "
-                         "(several files of the same tag are merged)")
-    ap.add_argument("--outdir", default=None)
-    args = ap.parse_args()
+for lens in lenses:
+    fig3(df, lens, n_filler, TAG, OUTDIR)
 
-    outdir = args.outdir or os.path.dirname(args.readout[0]) or "."
-    tag = tag_of(args.readout[0])
-    df = load(args.readout)
-    n_filler = n_filler_of(df)
-    lenses = sorted(df.lens.unique())
-    print(f"{df.idx.nunique()} examples | {df.layer.nunique()} layers | "
-          f"{df.pos.nunique()} positions ({n_filler} filler) | lenses: {lenses} | "
-          f"accuracy {df.groupby('idx')['correct'].first().mean():.2%}")
+# %% [markdown]
+# ## 3. "What algorithm?" summary
+#
+# First-decode layers, in-filler decode fractions, position centre-of-mass, and
+# the parallel-retrieval check (A1 and A2 co-decoded at one layer, different
+# positions). `ANALYSIS.md` says what each pattern would mean.
 
-    for lens in lenses:
-        fig3(df, lens, n_filler, tag, outdir)
+# %%
+summary = algorithm_summary(df, n_filler)
+js = os.path.join(OUTDIR, f"algorithm_summary_{TAG}_{'-'.join(lenses)}.json")
+with open(js, "w") as f:
+    json.dump(summary, f, indent=2)
+print(f"wrote {js}")
+print_report(summary)
 
-    summary = algorithm_summary(df, n_filler)
-    js = os.path.join(outdir, f"algorithm_summary_{tag}_{'-'.join(lenses)}.json")
-    with open(js, "w") as f:
-        json.dump(summary, f, indent=2)
-    print(f"wrote {js}")
-    print_report(summary)
+if len(lenses) < 2:
+    print(f"only the {lenses[0]!r} lens here — for the J-lens vs logit-lens "
+          f"comparison, run 20 with the other lens, then 30_compare_lenses.py")
 
-
-if __name__ == "__main__":
-    main()
+# %%

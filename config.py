@@ -36,6 +36,13 @@ class ModelSpec:
     device_map: Optional[str] = None  # None = single device; "auto" = shard across GPUs
     load_in_4bit: bool = False      # bitsandbytes 4-bit (for the big model)
     trust_remote_code: bool = True  # DeepSeek/Qwen custom modeling code
+    # Park a VL checkpoint's vision encoder in host RAM after loading. The lens
+    # only ever sees input_ids, so the encoder is dead weight on the GPU — but
+    # it is ~1.3 of the dev model's 9.3 GB, which is what decides whether the
+    # dev model fits on a 12 GB card. No-op on text-only models; ignored when
+    # device_map is set (accelerate owns placement there). See
+    # common.offload_vision_tower.
+    offload_vision: bool = True
     notes: str = ""
 
     @property
@@ -58,7 +65,12 @@ REGISTRY = {
         dtype="bfloat16",
         device_map=None,             # fits on one GPU; on CPU set dtype="float32"
         load_in_4bit=False,
-        notes="~8GB in bf16. CPU-runnable for smoke tests (slow). Ideal for debugging the pipeline.",
+        offload_vision=True,         # VL checkpoint; the encoder is ~1.3GB we never use
+        notes="9.3GB of bf16 weights on HF, of which ~1.3GB is a vision encoder the "
+              "lens never touches -> ~8.0GB on the GPU with offload_vision. Fits a "
+              "12GB card (RTX 4070 Super) with ~2GB to spare. CPU-runnable for smoke "
+              "tests (slow). Ideal for debugging the pipeline. Do NOT quantize it for "
+              "real numbers: the J matrices were fit in the bf16 residual basis.",
     ),
 
     # A couple of drop-in alternatives if you want a mid-size sanity check on a

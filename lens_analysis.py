@@ -8,6 +8,7 @@ Decode criterion (paper Sec. 4.2): a quantity counts as decoded at
 """
 from __future__ import annotations
 
+import glob
 import os
 import re
 
@@ -23,14 +24,38 @@ def tag_of(readout_csv: str) -> str:
     return re.sub(r"_(logit|jlens|both)$", "", base)
 
 
+def find_readouts(tag: str = "", outdir: str = "results") -> list[str]:
+    """Every readout CSV for one condition. `tag=""` picks the newest one written.
+
+    21 and 30 both want "the CSVs for one condition" — and 30 wants both lenses
+    of it, which may be one `--lens both` file or a logit file plus a jlens file.
+    Globbing for that beats retyping paths in a notebook cell.
+    """
+    paths = sorted(glob.glob(os.path.join(outdir, "lens_readout_*.csv")))
+    if not paths:
+        raise SystemExit(
+            f"no lens_readout_*.csv in {outdir}/ — run 20_lens_readout.py first")
+    if not tag:
+        tag = tag_of(max(paths, key=os.path.getmtime))
+    hits = [p for p in paths if tag_of(p) == tag]
+    if not hits:
+        raise SystemExit(f"no readout CSVs tagged {tag!r} in {outdir}/ "
+                         f"(tags present: {sorted({tag_of(p) for p in paths})})")
+    return hits
+
+
 def answers_path(readout_csv: str) -> str:
     return os.path.join(os.path.dirname(readout_csv) or ".",
                         f"answers_{tag_of(readout_csv)}.csv")
 
 
 def load(readout_csvs: str | list[str]) -> pd.DataFrame:
-    """Load one or more readout CSVs (same tag), merge in the ground-truth
-    answers, and add per-quantity decode indicator columns."""
+    """Load one or more readout CSVs (same tag) and merge in the ground truth.
+
+    The match_* decode indicators are written by 20_lens_readout.py, because
+    whether a quantity counts as decoded depends on the tokenizer's numeric
+    mode (exact vs first-token prefix — see paper_tasks.NumericReadout).
+    """
     if isinstance(readout_csvs, str):
         readout_csvs = [readout_csvs]
     tags = {tag_of(p) for p in readout_csvs}
@@ -43,10 +68,26 @@ def load(readout_csvs: str | list[str]) -> pd.DataFrame:
         raise SystemExit(f"companion answers file not found: {ans_csv}")
     ans = pd.read_csv(ans_csv)[["idx", "a1", "a2", "target"]]
     df = df.merge(ans, on="idx", how="left")
-    df["match_A1"] = df.top_num == df.a1
-    df["match_A2"] = df.top_num == df.a2
-    df["match_sum"] = df.top_num == df.target
+    missing = [q for q in QUANTITIES if f"match_{q}" not in df]
+    if missing:
+        raise SystemExit(
+            f"{readout_csvs[0]} has no match_* columns ({missing}) — it predates "
+            "the tokenizer-aware numeric readout. Re-run 20_lens_readout.py.")
     return df
+
+
+def readout_mode(df: pd.DataFrame) -> str:
+    """"exact" | "prefix" | "?" — which decode criterion produced these rows."""
+    if "readout_mode" not in df:
+        return "?"
+    modes = sorted(set(df.readout_mode.dropna()))
+    return modes[0] if len(modes) == 1 else "/".join(modes)
+
+
+def mode_note(df: pd.DataFrame) -> str:
+    """Short caption suffix so a prefix-mode figure is never mistaken for exact."""
+    m = readout_mode(df)
+    return "" if m == "exact" else f"  [decode: {m}-token match]"
 
 
 def n_filler_of(df: pd.DataFrame) -> int:

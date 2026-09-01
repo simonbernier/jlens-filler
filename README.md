@@ -12,14 +12,14 @@ Stage 1 is API-only (no GPU); stages 2–4 need local weights on a rented GPU bo
 |---|---|---|---|
 | 0 | `00_smoke_test.py` | prove the machine works (API path or GPU/lens path) | anywhere |
 | 1 | `10_build_fig2_dataset.py` → `11_run_fig2_sweep.py` | **Fig. 2**: accuracy vs filler length k, paper-scale n | API (no GPU) |
-| 2 | `20_lens_readout.py --lens logit` → `21_analyze_readout.py` | **Fig. 3**: the paper's logit-lens picture on V4 Flash | GPU box |
-| 3 | `20_lens_readout.py --lens jlens` → `30_compare_lenses.py` | **the new result**: does the J-lens see more than the logit lens? | GPU box |
+| 2 | `20_lens_readout.py` (`LENS="logit"`) → `21_analyze_readout.py` | **Fig. 3**: the paper's logit-lens picture on V4 Flash | GPU box |
+| 3 | `20_lens_readout.py` (`LENS="jlens"`) → `30_compare_lenses.py` | **the new result**: does the J-lens see more than the logit lens? | GPU box |
 | 4 | `40_attention_study.py` | attention study as in the paper (optional, code ready) | GPU box |
 
 Shared modules (no numbers = not run directly):
 `config.py` (model + lens registry), `common.py` (model/lens loading, provenance
-guard, lens application), `paper_tasks.py` (torch-free task library: prompts,
-fixed test set, numeric-token utils, McNemar), `api_common.py` (OpenRouter
+guard, lens application, and the two guards below), `paper_tasks.py` (torch-free
+task library: prompts, fixed test set, numeric-token utils, McNemar), `api_common.py` (OpenRouter
 client, provider pin, reasoning-off), `lens_analysis.py` (readout loading +
 "what algorithm?" aggregation for 21/30). `ANALYSIS.md` explains how to read
 every output and what a J-lens advantage (or null) would mean;
@@ -55,9 +55,9 @@ OPENROUTER_API_KEY=sk-or-...   # stage 1 (10/11 go through OpenRouter)
 | **bitsandbytes** | installed (needed for the 4-bit DeepSeek load) | skipped when there is no CUDA, so the rest of the install still succeeds |
 
 It also clones + `pip install -e`s `anthropics/jacobian-lens`, installs `openai`
-(stage 1) and `ipykernel`/`ipython` (the `# %%` cell scripts `10`/`11` need
-them; the kernel is registered as *Python (jlens-filler)*), logs in to HF if
-`HF_TOKEN` is set, and finishes with a verification block printing the torch
+(stage 1) and `ipykernel`/`ipython` (every numbered script except `00` and `40`
+is a `# %%` cell notebook; the kernel is registered as *Python (jlens-filler)*),
+logs in to HF if `HF_TOKEN` is set, and finishes with a verification block printing the torch
 version, each GPU's name and VRAM, and an import check for every package
 including `jlens`. The last thing it prints is the **interpreter path** — paste
 that into VS Code if it doesn't autodetect the env.
@@ -89,7 +89,7 @@ After setup, activate the env in new shells with `conda activate jlens-filler`
 (`${userHome}/.conda/envs/jlens-filler/python.exe`), turns on terminal
 auto-activation, loads `.env` so the API key reaches stage 1, and sets the
 notebook cwd to the repo root so the `# %%` scripts resolve `data/` and
-`results/` the same way a plain `python 10_...` does. If VS Code doesn't list
+`results/` the same way a plain `python 20_...` does. If VS Code doesn't list
 the env, refresh *Python: Select Interpreter* or use *Enter interpreter
 path...* with the path the setup script printed (on Windows the env lands in
 `%USERPROFILE%\.conda\envs` and the interpreter is `...\jlens-filler\python.exe`
@@ -133,25 +133,58 @@ elements → 5 pairs (paper Appendix A); same fixed test set at every k so
 McNemar applies.
 
 ## Stage 2 — the paper's logit-lens picture (GPU box)
+20, 21 and 30 are `# %%` notebooks like 10/11: open one in VS Code, edit the
+**Config** cell, run top-to-bottom. In 20 the model load is its own cell, so you
+can re-run the readout loop without paying for it again; 21 and 30 default to
+`TAG = ""`, which picks up whatever 20 wrote last, so the usual loop is *run 20,
+run 21, look at the figure*. Every one of them still runs headless on a rented
+box, where the Config cell's defaults become CLI flags:
 ```bash
 python 20_lens_readout.py --model dev --n 40 --k 10           # pipe-clean first
 python 20_lens_readout.py --model deepseek --n 300 --k 10 --lens logit
-python 21_analyze_readout.py --readout results/lens_readout_deepseek_dots-10_logit.csv
+python 21_analyze_readout.py                                  # newest condition
+python 21_analyze_readout.py --tag deepseek_dots-10           # or name one
 ```
+**The dev model runs on a 12 GB card.** Applying a J-lens needs no backward pass
+— the `J_l` matrices are pre-fitted and `lens.apply` is under `torch.no_grad()` —
+so VRAM is just weights, exactly like a plain logit lens. Qwen3.5-4B is 9.3 GB of
+bf16 on HF, of which ~1.3 GB is a vision encoder the lens never touches;
+`offload_vision` (default on, see `common.offload_vision_tower`) parks it in host
+RAM, leaving ~8.0 GB on the GPU and ~2 GB of headroom on an RTX 4070 Super.
+`load_model` prints VRAM after loading — read that before starting a long run.
+Don't quantize the dev model to buy headroom: the `J_l` were fit in the bf16
+residual basis, so 4-bit weights change what the lens reads.
+
+**Context window.** jlens's `encode` truncates at 512 tokens *from the right* by
+default, and our readout positions are negative indices into the untruncated
+text — so a long prompt would not error, it would silently shift every position
+and produce a plausible, wrong heatmap. Five few-shot examples plus k=25 dots is
+already past 512. Every lens call in this repo goes through `common.apply_lens`,
+which sizes the window to the prompt (`MAX_SEQ_LEN = None`) and raises rather
+than truncate if you pass an explicit value that is too small.
+
 20 greedy-generates each answer (correct/wrong split) and records, per
-(layer, position), the top numeric token and the ranks of A1/A2/sum. 21 turns
+(layer, position), the top numeric token, whether each of A1/A2/sum is decoded
+there, and their ranks. It adapts the paper's numeric-decode criterion to the
+model's tokenizer — exact match where digits are grouped into single tokens
+(DeepSeek), first-token match where they are split (Qwen, Llama 3) — prints
+which mode it is in, and records it in the CSV and every figure title. Headline
+numbers should come from an exact-mode run; `00_smoke_test.py` tells you which
+mode a model gives you before you spend GPU hours. 21 turns
 that into Figure-3-style heatmaps + the "what algorithm?" summary. The logit
 lens is run through `jlens` with `use_jacobian=False`, so stage 3 is an exact
-apples-to-apples upgrade. Use the **same `--seed` as stage 1** (default 0) so
+apples-to-apples upgrade. Use the **same `SEED` as stage 1** (default 0) so
 behavioral and mechanistic results describe the same examples.
 
 ## Stage 3 — J-lens vs logit-lens (the new result)
 ```bash
 python 20_lens_readout.py --model deepseek --n 300 --k 10 --lens jlens
-python 30_compare_lenses.py --readout results/lens_readout_deepseek_dots-10_logit.csv \
-                                      results/lens_readout_deepseek_dots-10_jlens.csv
+python 30_compare_lenses.py                                   # newest condition
 ```
-(Or run 20 once with `--lens both`.) 30 makes the J-lens − logit-lens
+(Or run 20 once with `--lens both`.) 30 needs both lenses for one condition and
+finds them by tag, so it picks up a single `both` file or a `logit` + `jlens`
+pair without being told which; pass `--readout a.csv b.csv` to name them
+explicitly. 30 makes the J-lens − logit-lens
 difference maps and per-layer decode curves; `ANALYSIS.md` says what each
 outcome means. Greedy answers are cached per condition
 (`results/answers_<tag>.csv`), so the jlens pass reuses the logit pass's

@@ -12,8 +12,12 @@ The GPU path proves the whole lens pipeline end to end:
   1. weights load, lens downloads + loads, provenance matches the model;
   2. prompt construction + filler-span location work on the REAL tokenizer
      (a rendered chat prompt round-trips to the right number of filler tokens);
-  3. lens.apply runs for BOTH the Jacobian lens and the logit-lens baseline;
-  4. the two disagree at least somewhere (if identical, the transport step is
+  3. the numeric decode criterion this tokenizer supports is reported —
+     "exact" where digits are grouped into single tokens (DeepSeek), "prefix"
+     (first-token match) where they are split (Qwen, Llama 3). Not a failure,
+     but headline stage-2/3 numbers should come from an exact-mode model;
+  4. lens.apply runs for BOTH the Jacobian lens and the logit-lens baseline;
+  5. the two disagree at least somewhere (if identical, the transport step is
      a no-op and something is wrong).
 """
 import argparse
@@ -52,8 +56,16 @@ def prompt_smoke(tok):
     check("filler tokens located, negative + contiguous",
           len(neg) >= k and all(n < 0 for n in neg)
           and neg == list(range(neg[0], neg[0] + len(neg))))
-    nids = pt.numeric_token_ids(tok)
-    check("numeric token table non-trivial", len(nids) > 100)
+    # Numeric readout: report which decode criterion this tokenizer supports.
+    # This is NOT pass/fail — a digit-splitting tokenizer (Qwen, Llama 3) can
+    # only do first-token matching, which is fine for pipe-cleaning and wrong
+    # for headline numbers. Only an empty table is a real failure.
+    numeric = pt.build_numeric_readout(tok)
+    check("numeric token table non-empty", numeric.ids.size > 0)
+    print("  " + numeric.describe())
+    if numeric.mode == "prefix":
+        print("  NOTE: run the headline decode (stages 2-3) on DeepSeek, whose "
+              "tokenizer groups digits — this model can only pipe-clean.")
     return text
 
 

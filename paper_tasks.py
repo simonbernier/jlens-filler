@@ -2,9 +2,9 @@
 Paper-faithful task construction for replicating "Reading Between the Dots"
 (Brauer, Verdun & Marks, arXiv:2607.03502) — 2-fact addition, chat format.
 
-This module is deliberately TORCH-FREE (numpy only) so the mock tests and the
-API-based accuracy sweep can run on any machine. Everything that needs
-torch/transformers/jlens lives in the runner scripts (03/04).
+This module is deliberately TORCH-FREE (numpy only) so it can run on any
+machine. Everything that needs torch/transformers/jlens lives in the stage
+scripts (20/40).
 
 What it mirrors from the paper (Appendix A):
   * Task: "What is the atomic number of <A1> plus the atomic number of <A2>?"
@@ -31,6 +31,8 @@ import random
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
 
 # --------------------------------------------------------------------------- #
 # Facts: atomic numbers 1..100 (paper: "100 atomic number facts (range 1-100)")
@@ -251,43 +253,136 @@ def span_to_negative_positions(
 
 
 # --------------------------------------------------------------------------- #
-# Numeric-token utilities (paper: "restricting to numeric tokens")
+# Numeric-token readout (paper Sec. 4.2: "restricting to numeric tokens")
+#
+# The paper's decode criterion — "the top NUMERIC token equals the ground-truth
+# value" — quietly assumes every value in range has a SINGLE-token spelling.
+# That holds on DeepSeek's tokenizer, which groups digits (0-999 are one token
+# each), and it is FALSE on tokenizers that split numbers into individual
+# digits (Qwen, Llama 3): there only 0-9 are single tokens, every multi-digit
+# value is unreachable, and a naive port of the criterion silently reports
+# "never decoded" everywhere.
+#
+# So the readout has two modes, picked per tokenizer by build_numeric_readout():
+#
+#   "exact"  — every value in [lo, hi] is one token, so decoding is exact and
+#              identical to the paper's. DeepSeek V3/V4: this is the real setting.
+#   "prefix" — values are split, so we decode the FIRST token of the value's
+#              spelling. A hit means "the model is predicting a number that
+#              starts with this digit", which is coarser (1, 19 and 137 share a
+#              first token) but still tracks retrieval and composition. Use it
+#              to pipe-clean the pipeline on a small model; headline numbers
+#              must come from an "exact" tokenizer, and every artifact records
+#              which mode produced it.
 # --------------------------------------------------------------------------- #
-def numeric_token_ids(tok, lo: int = 0, hi: int = 300) -> Dict[int, int]:
-    """{token_id: integer value} for single tokens that spell an integer in
-    [lo, hi], trying both 'N' and ' N' spellings. If both spellings exist as
-    distinct single tokens, both ids are included (mapped to the same value).
+NUMERIC_HI = 300          # 2-fact sums top out at 100+99; 1-fact can exceed this
+EXACT_COVERAGE_MIN = 0.95  # fraction of values needing a single-token spelling
+
+
+def _spellings(value: int) -> Tuple[str, str]:
+    return (str(value), f" {value}")
+
+
+def value_tokens(tok, value: int) -> Tuple[int, ...]:
+    """Leading token id(s) a model must emit to write `value`, one per spelling.
+
+    In "exact" mode these ARE the value's tokens; in "prefix" mode they are the
+    leading digit. Space-prefixed spellings are only used when the space stays
+    attached to the digits (it does on tokenizers that group digits, it does not
+    on digit-splitting ones, where the space is its own token).
     """
-    out: Dict[int, int] = {}
+    out = []
+    for s in _spellings(value):
+        ids = list(tok.encode(s, add_special_tokens=False))
+        if not ids:
+            continue
+        if len(ids) == 1:
+            out.append(int(ids[0]))
+            continue
+        head = tok.decode([ids[0]])
+        if head.strip()[:1].isdigit():      # skip a bare-space first token
+            out.append(int(ids[0]))
+    return tuple(dict.fromkeys(out))        # dedup, keep order
+
+
+@dataclass
+class NumericReadout:
+    """Tokenizer-aware numeric decode. Build once per model, pass to the readout."""
+    mode: str                          # "exact" | "prefix"
+    coverage: float                    # fraction of values with a 1-token spelling
+    lo: int
+    hi: int
+    ids: "np.ndarray"                  # candidate numeric tokens (argmax restricted here)
+    id_to_value: Dict[int, int]        # exact mode only ({} in prefix mode)
+    tokens_of: Dict[int, Tuple[int, ...]]   # value -> acceptable leading tokens
+
+    def describe(self) -> str:
+        n = self.hi - self.lo + 1
+        if self.mode == "exact":
+            return (f"[numeric readout] mode=exact — {len(self.ids)} numeric tokens; "
+                    f"{self.coverage:.0%} of values in {self.lo}..{self.hi} are "
+                    f"single-token. Decoding matches the paper's exactly.")
+        return (f"[numeric readout] mode=prefix — this tokenizer SPLITS numbers into "
+                f"digits (only {self.coverage:.0%} of values in {self.lo}..{self.hi} "
+                f"are single-token), so a value is 'decoded' when the top numeric "
+                f"token is the FIRST token of its spelling (137 -> '1'). Coarser than "
+                f"the paper's criterion — fine for pipe-cleaning, but run the headline "
+                f"decode on a digit-grouping tokenizer (DeepSeek V3/V4) for mode=exact.")
+
+    def top_token(self, logits_row) -> Optional[int]:
+        if self.ids.size == 0:
+            return None
+        return int(self.ids[int(np.argmax(logits_row[self.ids]))])
+
+    def top_value(self, logits_row) -> Optional[int]:
+        """Decoded integer — exact mode only; None in prefix mode (ambiguous)."""
+        tid = self.top_token(logits_row)
+        return None if tid is None else self.id_to_value.get(tid)
+
+    def decodes(self, logits_row, value: int) -> bool:
+        """Is `value` the decoded quantity here? (the paper's match criterion)"""
+        want = self.tokens_of.get(value)
+        if not want:
+            return False
+        return self.top_token(logits_row) in want
+
+    def rank(self, logits_row, value: int) -> int:
+        """Full-vocab rank (0 = top) of the value's best leading token.
+        Large sentinel when the value has no usable spelling."""
+        best = None
+        for tid in self.tokens_of.get(value, ()):
+            if tid < len(logits_row):
+                r = int((logits_row > logits_row[tid]).sum())
+                best = r if best is None else min(best, r)
+        return best if best is not None else 10 ** 9
+
+
+def build_numeric_readout(tok, lo: int = 0, hi: int = NUMERIC_HI) -> NumericReadout:
+    """Inspect the tokenizer and return the right readout for it (see above)."""
+    single: Dict[int, int] = {}
+    tokens_of: Dict[int, Tuple[int, ...]] = {}
+    n_single = 0
     for v in range(lo, hi + 1):
-        for s in (str(v), f" {v}"):
-            ids = tok.encode(s, add_special_tokens=False)
-            if len(ids) == 1:
-                out[int(ids[0])] = v
-    return out
-
-
-def top_numeric_value(logits_row, numeric_ids: Dict[int, int]) -> Optional[int]:
-    """Integer value of the highest-scoring numeric token (numpy row)."""
-    import numpy as np
-    ids = np.fromiter(numeric_ids.keys(), dtype=np.int64)
-    if ids.size == 0:
-        return None
-    best = ids[int(np.argmax(logits_row[ids]))]
-    return numeric_ids[int(best)]
-
-
-def value_rank(logits_row, tok, value: int) -> int:
-    """Full-vocab rank (0 = top) of the best single-token spelling of value.
-    Large sentinel if no single-token spelling exists."""
-    import numpy as np
-    best = None
-    for s in (str(value), f" {value}"):
-        ids = tok.encode(s, add_special_tokens=False)
-        if len(ids) == 1 and ids[0] < len(logits_row):
-            r = int((logits_row > logits_row[ids[0]]).sum())
-            best = r if best is None else min(best, r)
-    return best if best is not None else 10 ** 9
+        toks = value_tokens(tok, v)
+        tokens_of[v] = toks
+        exact = [int(ids[0]) for s in _spellings(v)
+                 for ids in [list(tok.encode(s, add_special_tokens=False))]
+                 if len(ids) == 1]
+        if exact:
+            n_single += 1
+            for tid in exact:
+                single[tid] = v
+    coverage = n_single / max(hi - lo + 1, 1)
+    mode = "exact" if coverage >= EXACT_COVERAGE_MIN else "prefix"
+    if mode == "exact":
+        ids = sorted(single)
+        id_to_value = single
+    else:
+        ids = sorted({tid for toks in tokens_of.values() for tid in toks})
+        id_to_value = {}
+    return NumericReadout(mode=mode, coverage=coverage, lo=lo, hi=hi,
+                          ids=np.asarray(ids, dtype=np.int64),
+                          id_to_value=id_to_value, tokens_of=tokens_of)
 
 
 # --------------------------------------------------------------------------- #

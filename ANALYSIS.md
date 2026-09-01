@@ -89,6 +89,16 @@ Concrete discriminations the comparison can make:
   running 4-bit changes the residual stream slightly. If J-lens results look
   noisy, check the smoke test's disagreement pattern on the dev model at the
   same precision first.
-* **Numeric-token readout.** Like the paper, `20` restricts the "decoded
-  value" to numeric tokens and exact match. Ranks of the true values are also
-  stored, so near-misses (rank 1–5) can be analyzed without re-running.
+* **Numeric-token readout — and the tokenizer it assumes.** Like the paper,
+  `20` restricts the "decoded value" to numeric tokens and exact match. That
+  criterion assumes every value has a single-token spelling, which holds on
+  DeepSeek's tokenizer (digits are grouped, 0–999 are one token each) and fails
+  on digit-splitting tokenizers like Qwen's, where only 0–9 are single tokens.
+  `build_numeric_readout()` detects this and switches to first-token matching
+  (`mode="prefix"`: 137 decodes as "1"), which is coarser — several values
+  share a leading digit — but still tracks retrieval and composition. The mode
+  is recorded in every readout CSV and printed in every figure title, so a
+  prefix-mode pipe-clean can never be mistaken for an exact-mode result.
+  **Headline numbers must come from an exact-mode run.** Ranks of the true
+  values are also stored in both modes, so near-misses (rank 1–5) can be
+  analyzed without re-running.

@@ -185,47 +185,52 @@ PAPER_REF = {
 
 OURS_COLOR = "#4878d0"
 
+
+def make_xpos(ks_all):
+    """k=0 gets its own slot, set off to the left of the k>0 series.
+
+    Every model's no-filler baseline is a plotted point with error bars rather
+    than a horizontal line, so the three models' baselines are compared the
+    same way their k>0 points are. The gap + separator keeps "no filler" from
+    reading as just another point on the k axis.
+    """
+    nz = [k for k in ks_all if k != 0]
+    pos = {k: i for i, k in enumerate(nz)}
+    pos[0] = -1.15
+    return pos, nz
+
+
 fig, axes = plt.subplots(1, 2, figsize=(11, 4.4))
 for ax, task in zip(axes, ["1fact", "2fact"]):
     g = sdf[sdf.task == task].sort_values("k")
-    ks = [k for k in g.k if k != 0]
-    xpos = {k: i for i, k in enumerate(ks)}
+    xpos, ks = make_xpos(list(g.k))
 
-    base = g[g.k == 0]
-    if len(base):
-        b = base.iloc[0]
-        ax.axhline(b.accuracy * 100, color="gray", ls="--", lw=1,
-                   label="no filler (k=0), this work")
-        ax.fill_between([-0.4, len(ks) - 0.6],
-                        (b.accuracy - b.se) * 100, (b.accuracy + b.se) * 100,
-                        color="gray", alpha=0.15, lw=0)
+    # separator between the no-filler slot and the filler sweep
+    ax.axvline(-0.6, color="0.75", ls=":", lw=1, zorder=0)
 
-    # paper reference curves (muted, dashed; own k=0 baseline as dotted hline)
+    # paper reference curves (muted, dashed), k=0 included as a point
     for label, ref in PAPER_REF[task].items():
-        rks = [k for k in ks if k in ref["acc"]]
+        rks = [k for k in ref["acc"] if k in xpos]
         accs = [ref["acc"][k] for k in rks]
         ses = [math.sqrt((a / 100) * (1 - a / 100) / ref["n"]) * 100 for a in accs]
-        ax.axhline(ref["acc"][0], color=ref["color"], ls=":", lw=0.9,
-                   alpha=0.55, label="_nolegend_")
         ax.errorbar([xpos[k] for k in rks], accs, yerr=ses,
                     marker=ref["marker"], ms=4, capsize=2, lw=1.4, ls="--",
-                    color=ref["color"], alpha=0.75, mfc="white", label=label)
+                    color=ref["color"], alpha=0.8, mfc="white", label=label)
 
-    gk = g[g.k != 0]
-    ax.errorbar([xpos[k] for k in gk.k], gk.accuracy * 100, yerr=gk.se * 100,
+    ax.errorbar([xpos[k] for k in g.k], g.accuracy * 100, yerr=g.se * 100,
                 marker="o", ms=4.5, capsize=3, lw=2.0, color=OURS_COLOR,
                 zorder=5, label="DeepSeek V4 Flash (this work)")
-    # asterisk over k values with a significant McNemar flip test
-    for _, row in gk.iterrows():
+    # asterisk over k values with a significant McNemar flip test vs k=0
+    for _, row in g[g.k != 0].iterrows():
         if row.get("mcnemar_p", 1.0) < 0.05:
-            ax.annotate("*", (xpos[row.k], (row.accuracy + row.se) * 100 + 1),
+            ax.annotate("*", (xpos[row.k], (row.accuracy + row.se) * 100 + 0.6),
                         ha="center", color=OURS_COLOR, zorder=5)
 
     lo, hi = ax.get_ylim()
     ax.set_ylim(lo, hi + (hi - lo) * 0.10)   # headroom for the asterisks
-    ax.set_xticks(range(len(ks)))
-    ax.set_xticklabels([str(k) for k in ks])
-    ax.set_xlim(-0.4, len(ks) - 0.6)
+    ax.set_xticks([xpos[0]] + list(range(len(ks))))
+    ax.set_xticklabels(["none"] + [str(k) for k in ks])
+    ax.set_xlim(xpos[0] - 0.45, len(ks) - 0.6)
     ax.set_xlabel("Number of Filler [k]")
     ax.set_ylabel("Accuracy (%)")
     n = int(g.n.max())
