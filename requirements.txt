@@ -8,10 +8,14 @@ safetensors>=0.4
 # Quantization (needed for DeepSeek V4 Flash on rented GPUs; optional for the 4B dev model)
 bitsandbytes>=0.43          # 4-bit / 8-bit weight loading
 
+# API access (stage 1: 10/11 via OpenRouter)
+python-dotenv>=1.0          # api_common loads OPENROUTER_API_KEY from a local .env
+
 # Analysis / plotting
 numpy>=1.26
 pandas>=2.0
 matplotlib>=3.8
+tqdm>=4.66              # progress bars for API sweeps (10/11)
 
 # The Jacobian-lens library itself is installed from git in setup_env.sh:
 #   pip install -e ./jacobian-lens

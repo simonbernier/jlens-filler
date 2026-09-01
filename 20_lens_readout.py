@@ -1,33 +1,36 @@
 """
-Lens extraction for the Figure 3 replication + the J-lens comparison.
+Stage 2/3 data collection — lens readout over the filler region (GPU box).
 
-For each example (2-fact addition, chat format, fixed test set shared with
-03_accuracy_sweep.py):
+For each example (2-fact addition, chat format, fixed test set shared with the
+stage-1 sweep via --seed):
   1. greedy-generate the model's answer -> correct / wrong split (paper
      Fig. 3 separates the two);
-  2. apply BOTH the Jacobian lens and the logit-lens baseline
-     (use_jacobian=True / False — same code path in jlens) at every
-     (source layer, position) over the filler region and the post-filler
-     tail ("Answer:" + generation prompt);
+  2. apply the selected lens(es) at every (source layer, position) over the
+     filler region and the post-filler tail ("Answer:" + generation prompt) —
+     --lens logit  : logit-lens baseline (stage 2, the paper's readout;
+                     jlens code path with use_jacobian=False)
+     --lens jlens  : Jacobian lens (stage 3)
+     --lens both   : both in one pass (one model load, cheapest overall);
   3. record, per (lens, layer, position): the top NUMERIC token's value and
      the full-vocab ranks of A1, A2 and A1+A2.
 
-The output is a compact tidy CSV that 05_analyze_lens.py turns into
-Figure-3-style heatmaps and the J-lens-vs-logit-lens comparison. No raw
-hidden states are stored (the paper's 50 MB/example cache is not needed
-for this readout).
+The output is a compact tidy CSV that 21_analyze_readout.py turns into
+Figure-3-style heatmaps and 30_compare_lenses.py into the J-lens-vs-logit-lens
+comparison. No raw hidden states are stored (the paper's 50 MB/example cache
+is not needed for this readout).
 
 Positions are passed to jlens as NEGATIVE indices (relative to sequence
 end) so a leading BOS added by internal re-tokenization can't shift them.
 
 Run (on the GPU box; dev model first):
-    python 04_lens_readout.py --model dev --n 40 --k 10          # pipe-clean
-    python 04_lens_readout.py --model deepseek --n 300 --k 10    # Fig. 3 cond
-    python 04_lens_readout.py --model deepseek --n 150 --k 50
+    python 20_lens_readout.py --model dev --n 40 --k 10               # pipe-clean
+    python 20_lens_readout.py --model deepseek --n 300 --k 10         # stage 2
+    python 20_lens_readout.py --model deepseek --n 300 --k 10 --lens jlens   # stage 3
+    python 20_lens_readout.py --model deepseek --n 150 --k 50 --lens both
 
 Output (results/):
-    lens_readout_<model>_<filler>-<k>.csv
-    answers_<model>_<filler>-<k>.csv
+    lens_readout_<model>_<filler>-<k>_<lens>.csv
+    answers_<model>_<filler>-<k>.csv       (reused across --lens runs)
 """
 from __future__ import annotations
 
@@ -42,9 +45,13 @@ import paper_tasks as pt
 
 POST_TAIL_MAX = 8  # how many post-filler token positions to read (incl. "Answer:")
 
+LENS_CHOICES = {"logit": [("logit", False)],
+                "jlens": [("jlens", True)],
+                "both": [("jlens", True), ("logit", False)]}
+
 
 # --------------------------------------------------------------------------- #
-# Rendering + token bookkeeping (needs only a tokenizer, mock-testable)
+# Rendering + token bookkeeping (needs only a tokenizer)
 # --------------------------------------------------------------------------- #
 def render_chat(tok, ex: pt.Example, kind: str, k: int) -> str:
     msgs = pt.build_messages(ex, kind, k)
@@ -70,7 +77,7 @@ def locate_positions(tok, text: str, ex: pt.Example, kind: str, k: int
 
 
 # --------------------------------------------------------------------------- #
-# Core per-example readout, with the lens call injected (mock-testable).
+# Core per-example readout.
 # apply_fn(text, positions, use_jacobian) -> {layer: np.ndarray[P, vocab]}
 # --------------------------------------------------------------------------- #
 def readout_example(
@@ -82,11 +89,12 @@ def readout_example(
     apply_fn: Callable[[str, Sequence[int], bool], Dict[int, np.ndarray]],
     tok,
     numeric_ids: Dict[int, int],
+    lenses: Sequence[Tuple[str, bool]],
     pos_chunk: int = 16,
 ) -> List[dict]:
     rows = []
     quantities = (("A1", ex.a1), ("A2", ex.a2), ("sum", ex.target))
-    for lens_name, use_j in (("jlens", True), ("logit", False)):
+    for lens_name, use_j in lenses:
         for start in range(0, len(positions), pos_chunk):
             chunk = list(positions[start:start + pos_chunk])
             out = apply_fn(text, chunk, use_j)
@@ -107,17 +115,21 @@ def readout_example(
 
 
 # --------------------------------------------------------------------------- #
-# Real-model driver
+# Driver
 # --------------------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="dev", help="registry key (config.py)")
+    ap.add_argument("--lens", default="logit", choices=list(LENS_CHOICES),
+                    help="logit = stage 2 baseline; jlens = stage 3; both = one pass")
     ap.add_argument("--filler", default="dots", choices=list(pt.FILLER_KINDS))
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--n", type=int, default=300)
-    ap.add_argument("--seed", type=int, default=0, help="same seed as 03!")
+    ap.add_argument("--seed", type=int, default=0, help="same seed as stage 1!")
     ap.add_argument("--pos-chunk", type=int, default=16,
                     help="positions per lens.apply call (memory knob)")
+    ap.add_argument("--regen-answers", action="store_true",
+                    help="re-generate greedy answers even if answers_<tag>.csv exists")
     ap.add_argument("--outdir", default="results")
     args = ap.parse_args()
 
@@ -127,8 +139,9 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
     tag = f"{args.model}_{args.filler}-{args.k}"
-    out_csv = os.path.join(args.outdir, f"lens_readout_{tag}.csv")
+    out_csv = os.path.join(args.outdir, f"lens_readout_{tag}_{args.lens}.csv")
     ans_csv = os.path.join(args.outdir, f"answers_{tag}.csv")
+    lenses = LENS_CHOICES[args.lens]
 
     spec = config.get(args.model)
     check_provenance(spec)
@@ -150,19 +163,32 @@ def main():
         return tok.decode(gen[0, enc["input_ids"].shape[1]:],
                           skip_special_tokens=True)
 
+    # greedy answers: identical for every lens choice, so reuse across runs
+    cached_answers: Dict[int, dict] = {}
+    if os.path.exists(ans_csv) and not args.regen_answers:
+        cached_answers = {int(r["idx"]): dict(r) for _, r in
+                          pd.read_csv(ans_csv).iterrows()}
+        print(f"[answers] reusing {len(cached_answers)} greedy answers from {ans_csv}")
+
     dataset = pt.build_dataset(args.n, seed=args.seed)
     all_rows, answers = [], []
     for i, ex in enumerate(dataset):
         text = render_chat(tok, ex, args.filler, args.k)
         positions, n_filler = locate_positions(tok, text, ex, args.filler, args.k)
-        reply = answer(text)
-        pred = pt.parse_answer(reply)
-        correct = pred == ex.target
-        answers.append(dict(idx=ex.idx, elem_a=ex.elem_a, elem_b=ex.elem_b,
-                            a1=ex.a1, a2=ex.a2, target=ex.target,
-                            reply=reply.strip()[:32], pred=pred, correct=correct))
+        if ex.idx in cached_answers:
+            a = cached_answers[ex.idx]
+            pred, correct = a["pred"], bool(a["correct"])
+            answers.append(a)
+        else:
+            reply = answer(text)
+            pred = pt.parse_answer(reply)
+            correct = pred == ex.target
+            answers.append(dict(idx=ex.idx, elem_a=ex.elem_a, elem_b=ex.elem_b,
+                                a1=ex.a1, a2=ex.a2, target=ex.target,
+                                reply=str(reply).strip()[:32], pred=pred,
+                                correct=correct))
         all_rows += readout_example(ex, text, positions, n_filler, correct,
-                                    apply_fn, tok, numeric_ids,
+                                    apply_fn, tok, numeric_ids, lenses,
                                     pos_chunk=args.pos_chunk)
         if (i + 1) % 10 == 0 or i == 0:
             acc = np.mean([a["correct"] for a in answers])
@@ -178,7 +204,7 @@ def main():
     print(f"\nwrote {out_csv} ({len(all_rows)} rows; {n_pos} positions/example, "
           f"{n_filler} filler)")
     print(f"wrote {ans_csv}  (accuracy {np.mean([a['correct'] for a in answers]):.2%})")
-    print("next: python 05_analyze_lens.py --readout", out_csv)
+    print("next: python 21_analyze_readout.py --readout", out_csv)
 
 
 if __name__ == "__main__":

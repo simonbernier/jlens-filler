@@ -43,5 +43,12 @@ wandb/
 # --- OS / editor ---
 .DS_Store
 Thumbs.db
-.vscode/
 .idea/
+
+# Ignore local VS Code state, but DO track settings.json — it pins the interpreter
+# and the notebook cwd, so a fresh clone is configured the same way.
+.vscode/*
+!.vscode/settings.json
+
+# --- Data ---
+*data

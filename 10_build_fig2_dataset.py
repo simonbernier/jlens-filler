@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Figure 2 dataset builder — 1-fact & 2-fact addition, dot filler
+# # Stage 1a — Figure 2 dataset builder (1-fact & 2-fact addition, dot filler)
 #
 # Prepares the datasets for replicating Figure 2 of *Reading Between the Dots*
 # (Brauer, Verdun & Marks, arXiv:2607.03502) on **DeepSeek V4 Flash**, dots only,
@@ -17,25 +17,29 @@
 #
 # Run cells top-to-bottom in VS Code (# %% = one Jupyter cell).
 # The knowledge check makes API calls; it caches to results/knowledge_check.jsonl
-# and is resumable — rerunning skips finished trials. Set USE_MOCK = True for a
-# free dry run of the whole pipeline.
+# and is resumable — rerunning skips finished trials.
+#
+# Growing N later is cheap: the test-set sampling is sequential in a seeded rng,
+# so a larger N keeps every earlier example unchanged — 11's results cache stays
+# valid and only the new examples cost API calls.
 
 # %% Config
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import random
-import re
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-SEED = 0                      # keep fixed — 07 reads the datasets built here
-KS = [0, 5, 10, 25, 50, 100]  # dot-filler lengths (0 = no-filler baseline)
-N_1FACT = 300                 # test examples per condition (paper: 800)
-N_2FACT = 300                 # test examples per condition (paper: 1500)
+from tqdm.auto import tqdm  # pip install tqdm
+
+import api_common as api
+
+SEED = 0                       # keep fixed — 11 reads the datasets built here
+KS = [0, 5, 10, 25, 50, 100]   # dot-filler lengths (0 = no-filler baseline)
+N_1FACT = 800                  # test examples per condition (paper: 800)
+N_2FACT = 1500                 # test examples per condition (paper: 1500)
 
 # knowledge check (paper: "answered correctly at least 3/4 times")
 KNOWLEDGE_TRIALS = 4
@@ -44,12 +48,6 @@ KNOWLEDGE_MIN_CORRECT = 3          # 3/4 = the paper's 75% criterion
 # is still meaningful because big-MoE API serving is not bit-deterministic
 # (batching / expert routing). Bump to 0.6 if you want a harsher check.
 KNOWLEDGE_TEMPERATURE = 0.0
-
-# OpenRouter (OpenAI-compatible). Key: export OPENROUTER_API_KEY=sk-or-...
-API_MODEL = "deepseek/deepseek-v4-flash"
-BASE_URL = "https://openrouter.ai/api/v1"
-WORKERS = 8
-USE_MOCK = False                   # True = no API calls; simulated replies
 
 DATA_DIR = "data/compose_facts"
 OUT_DIR = "data"                   # datasets land here
@@ -112,7 +110,7 @@ print(f"1-fact pool: {len(facts_1fact)} facts "
 print(f"2-fact pool: {len(facts_2fact)} elements")
 
 # %% [markdown]
-# ## 2. API client (or mock)
+# ## 2. API client
 
 # %%
 ANSWER_FORMAT = (
@@ -121,68 +119,14 @@ ANSWER_FORMAT = (
     "No explanation, no words, no reasoning, just the number."
 )
 
-
-def parse_answer(text: str) -> int | None:
-    """First integer in the reply ('Answer: 138' -> 138)."""
-    m = re.search(r"-?\d+", text)
-    return int(m.group()) if m else None
-
-
-class MockClient:
-    """Deterministic stand-in: answers correctly with p=0.85 per (question, salt),
-    so the knowledge filter has something to do. No network, no key."""
-
-    def query(self, messages, temperature, salt=""):
-        question = messages[-1]["content"]
-        h = int(hashlib.md5((question + salt).encode()).hexdigest(), 16)
-        # ground truth is recoverable from the question via the fact tables
-        truth = _MOCK_TRUTH.get(question)
-        if truth is None or h % 100 < 15:
-            return f"Answer: {(h % 200) + 1}"
-        return f"Answer: {truth}"
-
-
-_MOCK_TRUTH = {f"Question: {f['standalone']}\nAnswer:": f["answer"]
-               for f in facts_1fact}
-
-
-def make_client():
-    if USE_MOCK:
-        return MockClient()
-    from openai import OpenAI  # pip install openai
-    key = (os.environ.get("OPENROUTER_API_KEY")
-           or os.environ.get("DEEPSEEK_API_KEY")
-           or os.environ.get("OPENAI_API_KEY"))
-    assert key, "Set OPENROUTER_API_KEY in your environment."
-    return OpenAI(api_key=key, base_url=BASE_URL)
-
-
-def query(client, messages, temperature=0.0, salt="", max_retries=5) -> str:
-    if isinstance(client, MockClient):
-        return client.query(messages, temperature, salt)
-    delay = 2.0
-    for attempt in range(max_retries):
-        try:
-            resp = client.chat.completions.create(
-                model=API_MODEL, messages=messages,
-                temperature=temperature, max_tokens=16)
-            return resp.choices[0].message.content or ""
-        except Exception:
-            if attempt == max_retries - 1:
-                raise
-            time.sleep(delay)
-            delay = min(delay * 2, 60)
-    return ""
-
-
-client = make_client()
+client = api.make_client()
 
 # %% [markdown]
 # ## 3. Knowledge check — 4 standalone trials per fact
 #
 # Each fact is asked on its own (no filler, no few-shot), `KNOWLEDGE_TRIALS`
-# times at temperature 1. Cached one line per trial in
-# `results/knowledge_check.jsonl`; rerun this cell to resume after an interruption.
+# times. Cached one line per trial in `results/knowledge_check.jsonl`; rerun
+# this cell to resume after an interruption.
 
 # %%
 KNOWLEDGE_CACHE = os.path.join(RESULTS_DIR, "knowledge_check.jsonl")
@@ -208,9 +152,9 @@ def run_knowledge_check(facts: list[dict]) -> dict[str, list[bool]]:
 
     def work(item):
         fact, trial = item
-        reply = query(client, knowledge_messages(fact),
-                      temperature=KNOWLEDGE_TEMPERATURE, salt=str(trial))
-        correct = parse_answer(reply) == fact["answer"]
+        reply = api.query(client, knowledge_messages(fact),
+                          temperature=KNOWLEDGE_TEMPERATURE)
+        correct = api.parse_answer(reply) == fact["answer"]
         rec = dict(key=fact["key"], trial=trial, answer=fact["answer"],
                    reply=reply.strip()[:64], correct=correct)
         with lock:
@@ -218,11 +162,11 @@ def run_knowledge_check(facts: list[dict]) -> dict[str, list[bool]]:
                 f.write(json.dumps(rec) + "\n")
         done[(fact["key"], trial)] = correct
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        for i, fut in enumerate(as_completed([pool.submit(work, it) for it in todo])):
+    with ThreadPoolExecutor(max_workers=api.WORKERS) as pool:
+        futures = [pool.submit(work, it) for it in todo]
+        for fut in tqdm(as_completed(futures), total=len(futures),
+                        desc="knowledge check", unit="call"):
             fut.result()
-            if (i + 1) % 100 == 0:
-                print(f"  {i + 1}/{len(todo)}")
 
     out: dict[str, list[bool]] = {}
     for fact in facts:
@@ -282,6 +226,9 @@ print(f"eval pools: {len(eval_1fact)} facts (1-fact), {len(eval_2fact)} elements
 #
 # 1-fact: (fact, random two-digit addend X) — facts may repeat with different X.
 # 2-fact: ordered pairs of distinct elements.
+#
+# Sampling is sequential in a seeded rng, so growing N keeps the first examples
+# identical — see the header note about extending a finished sweep.
 
 # %%
 def sample_1fact_examples(pool, n, rng):
@@ -334,7 +281,7 @@ print(test_2fact[0]["question"], "->", test_2fact[0]["target"])
 # few-shot pairs carry the same filler as the eval condition.
 #
 # Output: `data/fig2_1fact.jsonl` and `data/fig2_2fact.jsonl`, one record per
-# (example, k) with the fully rendered chat messages — 07 just replays them.
+# (example, k) with the fully rendered chat messages — 11 just replays them.
 
 # %%
 SYSTEM_FILLER = (
@@ -375,13 +322,16 @@ fewshot_2fact = [((f"What is the atomic number of {a['key']} plus "
 
 
 def write_dataset(path, task, examples, fewshot):
-    with open(path, "w") as f:
+    with open(path, "w") as f, \
+         tqdm(total=len(KS) * len(examples), desc=f"building {task}",
+              unit="rec") as pbar:
         for k in KS:
             for ex in examples:
                 rec = dict(task=task, k=k, idx=ex["idx"], key=ex["key"],
                            question=ex["question"], target=ex["target"],
                            messages=build_messages(ex["question"], k, fewshot))
                 f.write(json.dumps(rec) + "\n")
+                pbar.update(1)
     print(f"wrote {path}  ({len(KS)} k-values x {len(examples)} examples)")
 
 
@@ -393,7 +343,8 @@ write_dataset(os.path.join(OUT_DIR, "fig2_2fact.jsonl"), "2fact",
 # metadata sidecar: everything needed to audit / rebuild the datasets
 meta = dict(
     seed=SEED, ks=KS, n_1fact=N_1FACT, n_2fact=N_2FACT,
-    api_model=API_MODEL, use_mock=USE_MOCK,
+    api_model=api.API_MODEL, provider=api.PROVIDER,
+    reasoning=api.REASONING, max_tokens=api.MAX_TOKENS,
     knowledge_trials=KNOWLEDGE_TRIALS, knowledge_min_correct=KNOWLEDGE_MIN_CORRECT,
     knowledge_temperature=KNOWLEDGE_TEMPERATURE,
     n_facts_prefilter=dict(fact1=len(facts_1fact), fact2=len(facts_2fact)),

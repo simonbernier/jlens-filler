@@ -24,12 +24,32 @@ short sweeps if you checkpoint results to disk between prompts.
 
 ## 3. Environment
 ```bash
-export HF_HOME=/workspace/hf
+git clone https://github.com/simonbernier/jlens-filler.git && cd jlens-filler
+export HF_HOME=/workspace/hf      # do this BEFORE setup_env.sh — keeps the weights off root
 export HF_TOKEN=hf_...            # needed for deepseek weights
 bash setup_env.sh
-python 01_smoke_test.py --model deepseek     # first: does the big lens even load + apply?
-python 02_filler_experiment.py --model deepseek --k 25
+source .venv/bin/activate         # in new shells; `conda activate jlens-filler` if the pod has conda
+python 00_smoke_test.py --model deepseek     # first: does the big lens even load + apply?
+python 20_lens_readout.py --model deepseek --n 40 --k 10   # then a short readout run
 ```
+`setup_env.sh` is the same script you run locally — it adapts to the pod on its own:
+
+- **Environment:** a bare pod has no conda, so the script creates `.venv`. If the image
+  *does* ship conda (many Runpod PyTorch images do), it creates/reuses a `jlens-filler`
+  conda env instead. Force either with `ENV_BACKEND=venv` / `ENV_BACKEND=conda`.
+- **torch:** if the image already has a tuned torch, the script leaves it alone — usually
+  what you want on a rented GPU image. Otherwise it reads the CUDA version out of
+  `nvidia-smi` and installs the matching wheel (`cu128` for a 12.8 driver, and so on).
+  Override with `FORCE_TORCH=1` to reinstall anyway, or `CUDA_TAG=cu126` to pin the index.
+- **bitsandbytes** installs here because there is a GPU — it is what makes the 4-bit
+  DeepSeek load possible. On a CPU/laptop run the script skips it, so don't be surprised
+  that it is absent there.
+- The closing verification block prints each GPU's name and VRAM plus a `jlens` import
+  check. Read it before kicking off a 300–600 GB download — it is the cheapest place to
+  catch a pod that came up with fewer GPUs than you paid for.
+- If the pod is a bare container, `git` may be missing: `apt-get update && apt-get install -y git`
+  first (the script checks for git up front and stops with a clear message).
+
 `accelerate` (installed) handles the multi-GPU sharding via `device_map="auto"`.
 
 ## 4. Gotchas

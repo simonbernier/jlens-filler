@@ -1,6 +1,7 @@
 # What algorithm runs across the filler — and what can the J-lens add?
 
-This note is the interpretation companion to `05_analyze_lens.py`. It states the
+This note is the interpretation companion to `21_analyze_readout.py` and
+`30_compare_lenses.py`. It states the
 paper's answer as testable expectations, then the hypotheses the J-lens can
 discriminate that the logit lens cannot. Every claim below maps to a number in
 `algorithm_summary_<tag>.json` or a panel in the generated figures.
@@ -12,7 +13,7 @@ space (filler positions) and depth (layers):
 
 1. **Parallel retrieval, positionally specialized.** A1 is decoded most
    strongly at *early* filler positions, A2 at *later* ones, both from middle
-   layers. In `05` this shows up as `A1_mean_position < A2_mean_position` and a
+   layers. In `21` this shows up as `A1_mean_position < A2_mean_position` and a
    high `parallel_A1_A2_same_layer_frac` (both addends readable at the same
    layer, different positions). Their transplant experiments (paper Sec. 4.3)
    show this positional structure is causal, not a lens artifact.
@@ -44,7 +45,7 @@ layers would *transport* into the readout basis — is invisible to it.
 
 The Jacobian lens transports layer-L residuals through the (linearized)
 remaining computation before unembedding. Same code path in `jlens`
-(`use_jacobian=True/False`), so `04` gives an exact apples-to-apples
+(`use_jacobian=True/False`), so `20` gives an exact apples-to-apples
 comparison at every (layer, position).
 
 Concrete discriminations the comparison can make:
@@ -67,7 +68,7 @@ Concrete discriminations the comparison can make:
   readout for the J-lens and re-measure judge accuracy.
 * **Null result guardrail.** If J-lens ≈ logit lens everywhere on this task,
   that is still a result: filler intermediates live in the readout basis, and
-  the interesting J-lens applications are elsewhere. The `01_smoke_test.py`
+  the interesting J-lens applications are elsewhere. The `00_smoke_test.py`
   assertion (lenses must differ *somewhere*) protects against mistaking a
   plumbing no-op for this null.
 
@@ -75,18 +76,19 @@ Concrete discriminations the comparison can make:
 
 * **Model swap.** The paper used DeepSeek V3 and Kimi K2; this replication
   targets DeepSeek V4 Flash because that is where a published J-lens exists.
-  Step 1 (accuracy sweep) is therefore a genuine *generalization* check, not a
+  Stage 1 (accuracy sweep) is therefore a genuine *generalization* check, not a
   strict replication — V4 Flash may show smaller or larger uplift, and the
   paper itself found Qwen 3 480B gets little uplift on addition. If V4 Flash
   shows no 2-fact uplift, fall back to 1-fact addition (bigger effect in the
   paper: 54%→72%) before concluding anything.
 * **Small behavioral effect.** DeepSeek V3's 2-fact uplift was ~3 points on
-  1500 examples. At n=300 the McNemar flip test is the sensitive statistic,
-  not the raw accuracy difference; `accuracy_summary.csv` reports both.
+  1500 examples. Even at paper-scale n the McNemar flip test is the sensitive
+  statistic, not the raw accuracy difference; `results/fig2_summary.csv`
+  reports both.
 * **Quantization.** The J-lens was presumably fit on unquantized residuals;
   running 4-bit changes the residual stream slightly. If J-lens results look
   noisy, check the smoke test's disagreement pattern on the dev model at the
   same precision first.
-* **Numeric-token readout.** Like the paper, `04` restricts the "decoded
+* **Numeric-token readout.** Like the paper, `20` restricts the "decoded
   value" to numeric tokens and exact match. Ranks of the true values are also
   stored, so near-misses (rank 1–5) can be analyzed without re-running.

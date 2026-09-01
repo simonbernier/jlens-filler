@@ -1,0 +1,127 @@
+"""
+Shared loading + aggregation helpers for the lens-readout CSVs written by
+20_lens_readout.py. Used by 21_analyze_readout.py (per-lens Figure-3 view)
+and 30_compare_lenses.py (J-lens vs logit-lens).
+
+Decode criterion (paper Sec. 4.2): a quantity counts as decoded at
+(layer, position) when the TOP NUMERIC token equals its ground-truth value.
+"""
+from __future__ import annotations
+
+import os
+import re
+
+import pandas as pd
+
+QUANTITIES = ["A1", "A2", "sum"]
+
+
+def tag_of(readout_csv: str) -> str:
+    """results/lens_readout_deepseek_dots-10_logit.csv -> deepseek_dots-10"""
+    base = os.path.basename(readout_csv).replace("lens_readout_", "")
+    base = re.sub(r"\.csv$", "", base)
+    return re.sub(r"_(logit|jlens|both)$", "", base)
+
+
+def answers_path(readout_csv: str) -> str:
+    return os.path.join(os.path.dirname(readout_csv) or ".",
+                        f"answers_{tag_of(readout_csv)}.csv")
+
+
+def load(readout_csvs: str | list[str]) -> pd.DataFrame:
+    """Load one or more readout CSVs (same tag), merge in the ground-truth
+    answers, and add per-quantity decode indicator columns."""
+    if isinstance(readout_csvs, str):
+        readout_csvs = [readout_csvs]
+    tags = {tag_of(p) for p in readout_csvs}
+    assert len(tags) == 1, f"readout files mix conditions: {tags}"
+    df = pd.concat([pd.read_csv(p) for p in readout_csvs], ignore_index=True)
+    df = df.drop_duplicates(subset=["lens", "idx", "layer", "pos"], keep="last")
+
+    ans_csv = answers_path(readout_csvs[0])
+    if not os.path.exists(ans_csv):
+        raise SystemExit(f"companion answers file not found: {ans_csv}")
+    ans = pd.read_csv(ans_csv)[["idx", "a1", "a2", "target"]]
+    df = df.merge(ans, on="idx", how="left")
+    df["match_A1"] = df.top_num == df.a1
+    df["match_A2"] = df.top_num == df.a2
+    df["match_sum"] = df.top_num == df.target
+    return df
+
+
+def n_filler_of(df: pd.DataFrame) -> int:
+    return int(df[df.pos_type == "filler"].pos.max()) + 1
+
+
+def grid(df: pd.DataFrame, col: str):
+    """(layers, positions, matrix[layer, pos]) of mean(col)."""
+    p = df.pivot_table(index="layer", columns="pos", values=col, aggfunc="mean")
+    p = p.sort_index().sort_index(axis=1)
+    return p.index.to_numpy(), p.columns.to_numpy(), p.to_numpy()
+
+
+# --------------------------------------------------------------------------- #
+# "What algorithm?" summary
+# --------------------------------------------------------------------------- #
+def algorithm_summary(df: pd.DataFrame, n_filler: int) -> dict:
+    out = {}
+    fill = df[(df.pos < n_filler) & df.correct]
+    post = df[(df.pos >= n_filler) & df.correct]
+    for lens in sorted(df.lens.unique()):
+        s = {}
+        fl = fill[fill.lens == lens]
+        po = post[post.lens == lens]
+        # 1. Does each quantity ever decode in the filler region?
+        for q in QUANTITIES:
+            per_ex = fl.groupby("idx")[f"match_{q}"].any()
+            s[f"{q}_decoded_in_filler_frac"] = round(float(per_ex.mean()), 3)
+            # earliest layer at which it first decodes (median over examples)
+            firsts = (fl[fl[f"match_{q}"]].groupby("idx")["layer"].min())
+            s[f"{q}_first_layer_median"] = (
+                float(firsts.median()) if len(firsts) else None)
+            # position center-of-mass (where in the filler it lives)
+            m = fl[fl[f"match_{q}"]]
+            s[f"{q}_mean_position"] = (
+                round(float(m.pos.mean()), 2) if len(m) else None)
+        # 2. sum in filler vs at the answer tail
+        s["sum_decoded_in_post_frac"] = round(
+            float(po.groupby("idx")["match_sum"].any().mean()), 3) if len(po) else None
+        # 3. parallel retrieval: same example, same layer, A1 and A2
+        #    simultaneously decoded at DIFFERENT positions
+        both = (fl.groupby(["idx", "layer"])
+                  .agg(a1_any=("match_A1", "any"), a2_any=("match_A2", "any")))
+        par_ex = both[both.a1_any & both.a2_any].reset_index().idx.nunique()
+        n_ex = fl.idx.nunique()
+        s["parallel_A1_A2_same_layer_frac"] = (
+            round(par_ex / n_ex, 3) if n_ex else None)
+        out[lens] = s
+    # 4. wrong-example signature: retrieval without composition
+    ref_lens = "logit" if "logit" in set(df.lens) else sorted(df.lens.unique())[0]
+    wf = df[(df.pos < n_filler) & (~df.correct) & (df.lens == ref_lens)]
+    if wf.idx.nunique():
+        out[f"wrong_examples_{ref_lens}"] = {
+            q: round(float(wf.groupby("idx")[f"match_{q}"].any().mean()), 3)
+            for q in QUANTITIES}
+    return out
+
+
+def print_report(s: dict):
+    print("\n=================== WHAT ALGORITHM? ===================")
+    for lens in [k for k in s if not k.startswith("wrong_examples_")]:
+        d = s[lens]
+        print(f"\n--- {lens} (correct examples) ---")
+        for q in QUANTITIES:
+            print(f"  {q:>4}: decoded-in-filler {d[f'{q}_decoded_in_filler_frac']:>6} | "
+                  f"first layer (median) {d[f'{q}_first_layer_median']} | "
+                  f"mean position {d[f'{q}_mean_position']}")
+        print(f"  sum decoded in post/answer tail: {d['sum_decoded_in_post_frac']}")
+        print(f"  A1 & A2 co-decoded at one layer (parallel retrieval): "
+              f"{d['parallel_A1_A2_same_layer_frac']}")
+    for key in [k for k in s if k.startswith("wrong_examples_")]:
+        print(f"\n--- wrong examples ({key.replace('wrong_examples_', '')} lens) ---")
+        print("  ", s[key], "  <- paper's signature: A1/A2 present, sum absent")
+    print("\nReading guide: retrieval-then-composition = A1/A2 first-layer << "
+          "sum first-layer; position specialization = mean_position(A1) < "
+          "mean_position(A2); J-lens 'sees more' = higher decoded-in-filler "
+          "fractions and/or smaller first-layer at matched positions.")
+    print("=======================================================\n")
