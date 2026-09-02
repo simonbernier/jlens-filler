@@ -152,12 +152,35 @@ def patched(hf, layer: int, positions: Sequence[int], replacement, seq_len: int)
         handle.remove()
 
 
-def greedy_answer(hf, tok, input_ids, max_new_tokens: int = 6) -> str:
+def greedy_answer(hf, tok, input_ids, max_new_tokens: int = 6):
+    """(reply, first-token logits). The logits give the paper's metric — the
+    RANK of a candidate answer among all tokens — which is far more sensitive
+    than whether the greedy answer swapped (the paper's own transplants move
+    the donor answer from rank ~90 to ~15 and fully swap it only 6-13% of the
+    time). Numerals are single tokens on DeepSeek, so the first step decides."""
     import torch
+    # Explicit all-ones mask: without it, generate() infers a mask from
+    # input_ids != pad_token_id whenever pad differs from the generation
+    # config's eos, and our prompts CONTAIN the eos token (it closes every
+    # few-shot assistant turn) — those positions would silently drop out of
+    # attention. Not the case on DeepSeek V4 (pad == eos == 1), but never rely on it.
     with torch.no_grad():
-        gen = hf.generate(input_ids=input_ids, max_new_tokens=max_new_tokens,
-                          do_sample=False, pad_token_id=tok.eos_token_id)
-    return tok.decode(gen[0, input_ids.shape[1]:], skip_special_tokens=False)
+        out = hf.generate(input_ids=input_ids, attention_mask=torch.ones_like(input_ids),
+                          max_new_tokens=max_new_tokens, do_sample=False,
+                          pad_token_id=tok.eos_token_id,
+                          output_logits=True, return_dict_in_generate=True)
+    reply = tok.decode(out.sequences[0, input_ids.shape[1]:], skip_special_tokens=False)
+    return reply, out.logits[0][0].float().cpu()
+
+
+def answer_ranks(tok, logits, values: dict) -> dict:
+    """{name: full-vocab rank (0 = top) of the numeral token for each value}."""
+    out = {}
+    for name, v in values.items():
+        ids = tok.encode(str(v), add_special_tokens=False)
+        out[f"rank_{name}"] = (int((logits > logits[ids[0]]).sum())
+                               if len(ids) == 1 else np.nan)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -347,6 +370,9 @@ def summarize(df: pd.DataFrame, clean_acc_k0=None) -> dict:
         key = cond if (cond == "clean" or pd.isna(layer)) else f"{cond}@{int(layer)}"
         out[key] = dict(n=n, accuracy=round(acc / n, 3), ci=[round(x, 3) for x in wilson(acc, n)],
                         same_as_clean=round(same, 3), classes=mix)
+        ranks = {c: float(g[c].median()) for c in g.columns if c.startswith("rank_")}
+        if ranks:                     # the paper's metric: median rank of each candidate
+            out[key]["median_rank"] = ranks
     # chance for "moved toward the donor": how often the CLEAN prediction
     # already equals a donor-derived value
     donor_cls = ["donor_target", "donor_a1+a2", "a1+donor_a2", "donor_a1", "donor_a2"]
@@ -514,14 +540,19 @@ def main():
         own = capture_residuals(hf, [SELF_LAYER], ids, dots)
         theirs = capture_residuals(hf, capture_layers, d_ids, d_dots)
 
-        def record(condition, layer, reply):
+        def record(condition, layer, generated):
+            reply, logits = generated
             pred = pt.parse_answer(reply)
             rows.append(dict(idx=ex.idx, condition=condition, layer=layer,
                              a1=ex.a1, a2=ex.a2, target=ex.target,
                              donor_idx=donor.idx, donor_a1=donor.a1, donor_a2=donor.a2,
                              donor_target=donor.target, reply=reply.strip()[:32],
                              pred=pred, correct=pred == ex.target,
-                             cls=classify(pred, ex, donor)))
+                             cls=classify(pred, ex, donor),
+                             **answer_ranks(tok, logits, {
+                                 "target": ex.target, "donor_target": donor.target,
+                                 "donor_a1+a2": donor.a1 + ex.a2,
+                                 "a1+donor_a2": ex.a1 + donor.a2})))
             return pred
 
         clean_pred = record("clean", np.nan, greedy_answer(hf, tok, ids))
@@ -595,8 +626,12 @@ def main():
     for key, s in summary.items():
         if isinstance(s, dict):
             top = {c: v for c, v in s["classes"].items() if v >= 0.05}
+            mr = s.get("median_rank", {})
             print(f"{key:>10}: acc {s['accuracy']:.3f} {s['ci']} | same as clean "
-                  f"{s['same_as_clean']:.2f} | {top}")
+                  f"{s['same_as_clean']:.2f} | {top}"
+                  + (f" | median rank: target {mr.get('rank_target')}, donor sum "
+                     f"{mr.get('rank_donor_target')}, donor_a1+a2 {mr.get('rank_donor_a1+a2')}"
+                     if mr else ""))
     print(f"chance (clean pred already donor-derived): {summary['chance_donor_derived']}")
     plot(df, summary, tag + args.out_suffix, args.outdir)
 

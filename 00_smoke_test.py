@@ -102,7 +102,7 @@ def lens_smoke(args):
     # confident wrong answer unless the <think> tag is kept in the decode.
     print("\n== greedy answer on the task prompt (reasoning must be OFF) ==")
     import torch
-    enc = tok(chat_prompt, add_special_tokens=False, return_tensors="pt").to(hf.device)
+    enc = tok(chat_prompt, add_special_tokens=False, return_tensors="pt").to(hf.device)  # has attention_mask
     with torch.no_grad():
         gen = hf.generate(**enc, max_new_tokens=6, do_sample=False,
                           pad_token_id=tok.eos_token_id)

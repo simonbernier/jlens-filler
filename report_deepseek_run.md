@@ -85,12 +85,137 @@ to act on. The J-lens does not reveal hidden computation the logit lens misses
 here; it sharpens the late picture. The only J-lens-only trace in the filler
 is A2 at layers 5–20 at 4–5% vs a 3% control — unresolved at n=300.
 
-## 4. Suggested next runs on the box
+## 4. Later runs: k=25, n=1500, and the k=0 tail
 
-- `--n 1500 --k 10 --lens both` (~70 min): paper scale, ~800 wrong examples
-  for the signature, resolves the position striping and the early-layer A2
-  trace.
-- `--n 300 --k 25` (~15 min): does the lens picture track the uplift plateau
-  stage 1 saw at k=25?
-- Add rank-based curves (top-10) to `30_compare_lenses.py` so the comparison
-  in §3 comes out of the pipeline.
+- **k=25 (n=300):** accuracy 46.3% (API 44.3%), uplift +11.3 vs +11.7 — the
+  stage-1 plateau. Same retrieval band, same per-cell densities (A1/A2/sum
+  3.5/3.6/1.4% vs 0.5% control), same wrong-example signature, identical tail
+  table. Fifteen extra dots hold more copies of the same late retrieval and
+  add nothing.
+- **n=1500 (k=10):** 706 correct / 794 wrong; every n=300 number reproduces
+  to the second decimal. Local vs API 47.1% vs 45.3% (p=0.015, 66 vs 40
+  flips; a 1.7-point serving-stack difference), same-integer agreement 81%.
+- **Parallel or serial?** (new metrics in `21`): depth onset A2−A1 has median
+  −1 (k=10) / 0 (k=25) layers with [later, same, earlier] ≈ [33–40%, 11–20%,
+  45–56%] — no ordering in depth; position A2−A1 is +0.35 dots at k=10 (n.s.)
+  and −0.8 at k=25 (p≈0.04) — opposite signs, no left-to-right order; the
+  top-10 dot-set overlap equals its chance level (Jaccard 0.05–0.15 vs
+  0.05–0.10) — the two facts land on dots independently; both are in one
+  vector's top-10 in 19–24% (k=10) / 45–48% (k=25) of examples.
+- **The k=0 tail reads the same** (`--k 0` now reads the tail). Same 300
+  examples, best layer, correct examples: A2 at the answer token 68% (k=0) vs
+  71% (k=10), sum 88% vs 91%. Retrieval is a property of any post-question
+  position, not of the dots. What the filler changes is A1 availability at
+  the answer position (top-10: stable-right 59→69%, rescued 50→76%,
+  stable-wrong 40→66%) — but stable-wrong examples have both operands
+  present at k=10 and still fail (sum rank 26), so A1 availability is not
+  sufficient, and the failure is in a step the lens does not resolve.
+
+## 5. Causal tests (`50_filler_patching.py`, figure `causal_tests_deepseek_dots-10.png`)
+
+Every condition below edits ONLY the ten dot positions during the prefill
+and greedy-generates; n=300, Wilson 95% CIs (±5.5 points), predictions
+written in the script's docstring before the run. Plumbing: self-patch
+reproduced clean on 100% of examples; clean reproduced the readout run's
+answers on 300/300; the control swap sat at clean accuracy.
+
+| intervention on the dots | accuracy | prediction changed | answer became donor-derived |
+|---|---|---|---|
+| clean | 46.3% | — | 0.3% (chance) |
+| donor residual @30 / @35 / @39 | 44.7 / 44.0 / 47.0% | 26 / 23 / 14% | 0.7% |
+| donor residual, layers 33–40 at once | 45.0% | 28% | 0.7% |
+| **donor residual, all 42 layers** | **42.7%** [37–48] | 30% | 0.0% |
+| J-swap A1→A1′ (α=1 / α=2) | 46.3 / 46.3% | 8 / 19% | 0.3% |
+| J-swap A2→A2′ | 45.7% | 10% | 0.3% |
+| J-swap control pair | 46.7% | 8% | 0.3% |
+| J-ablate A1 / A2 / both | 46.3 / 44.0 / 45.0% | 7 / 10 / 8% | 0.3–0.7% |
+
+(k=0, no filler at all: 35.0%.)
+
+**Result.** Nothing done to the dots' content moves accuracy more than
+~4 points, and no intervention transfers an operand: 2 donor-derived
+answers in 1,800 patched generations against a 0.7% chance floor. This holds
+for whole-position patches at single layers, across the whole retrieval band
+(no layer left to heal the patch), and at every layer — where the dots are
+entirely another question's computation and accuracy is still 42.7%, with
+the 42 filler-rescued examples still correct 76% of the time. The J-lens
+coordinate swaps and ablations are null as a corollary: if replacing
+everything on the dots does not change the answer, replacing one
+lens-readable coordinate cannot. (The J-null therefore says nothing about
+whether computation is "hidden" from the verbalizable subspace — that
+question only arises once a read exists.)
+
+**The dots are not completely inert.** With the donor's dots at all layers,
+30% of predictions change, and those changes are graded, not random: they
+move toward the donor's sum in 77–80% of cases (56% for a shuffled-donor
+control) and regress on the donor's operands, Δpred ≈ 0.25·ΔA1 + 0.34·ΔA2
+(r = 0.31 and 0.54). The answer position blends in roughly a quarter to a
+third of what the dots say about the operands — more A2 than A1, the
+opposite of the pre-registered guess — for a minority of examples. A leak,
+not a channel.
+
+**Conclusion.** On V4 Flash, dots k=10, 2-fact addition: the operands are
+decodable on the dots (the paper's picture), the same retrieval happens at
+every post-question token, and the answer position does not depend on the
+dots' content — the 11-point uplift is carried by the dots' *presence*, not
+by computation performed on them. "Hidden computation across filler tokens"
+is not what produces the uplift in this model; what the presence of extra
+positions does (attention structure, distance, sink capacity) is the open
+question this leaves.
+
+Caveats: single model, single task, single filler type; the J-lens was fit
+on pretraining text at positions ≤128; the `hc_head` collapse of the
+four-stream residual is our choice; the J-swap's effectiveness on the
+residual was not verified with a lens readout under the edit (the `lenscheck`
+condition exists but was not run) — immaterial to the conclusion, since the
+wholesale patches are null, but the write-up should say "assumed", not
+"verified".
+
+**Audit of the causal code (done before the write-up).** Three properties
+of the run itself rule out a silent no-op or a wrong-position patch: the
+self-patch (own residual back into the dots) reproduced clean on 300/300
+while donor patches changed 14–30% of answers, so the hook writes into the
+live computation and the captured residuals match the generate prefill; the
+changes are dose-dependent (J-swap α=2 changes 19% vs 8% at α=1; later
+single-layer patches change fewer answers, 26% at layer 30 vs 14% at 39);
+and what changes carries the donor's numbers — among changed answers, Δpred
+correlates 0.55–0.65 with the donor's ΔA2 at every patch layer, which no
+misplaced or inert patch could produce. Offline: every donor has disjoint
+elements and a different sum, clean predictions equal the readout run's
+cached answers, the dot positions are the ones the readouts decode operands
+at, and the model's config gives every attention layer a dense 128-token
+sliding window, so the answer position sees the dots directly at all layers.
+One hardening came out of the audit: `generate()` infers an attention mask
+from `input_ids != pad_token_id` whenever pad differs from the generation
+config's eos, and our prompts contain the eos token (it closes each few-shot
+turn); on V4 Flash pad == eos == 1 so no mask was inferred, but every
+generate call now passes an explicit all-ones mask. The script also now
+records the full-vocabulary rank of each candidate answer at the first
+generated token — the paper's own metric — for future runs.
+
+**Reconciliation with the paper's KV transplants.** The paper's causal
+evidence (DeepSeek V3) is a *rank* effect: transplanting the donor's filler
+KV moves the donor answer's rank from ~90 to ~15 (2-fact, k=50; 1-fact,
+k=100), "most changes corrupt the target's own answer rather than fully swap
+it", full swaps are 13% only at k=100, the effect is "stronger for longer
+filler", and accuracy under transplant is not reported. Our k=10 result is
+the same phenomenon at the other end of that dose curve: the donor's
+operands leak into the answer (slope 0.1–0.3 on ΔA2, 30% of answers change),
+full swaps do not occur (0.3%), and — the number the paper did not measure —
+accuracy holds. The dots' content is causal in the paper's graded sense and
+not what carries the uplift.
+
+## 6. Suggested next runs on the box
+
+- Run `50_filler_patching.py --conditions lenscheck --out-suffix _lenscheck`
+  (~5 min) to verify the J-swap moved the lens coordinate; rerun the band
+  conditions to get the donor-answer *ranks* (now logged) for a direct
+  comparison with the paper's 90 → 15.
+- k=50 or k=100 with the same script: the paper's effect grows with k; ours
+  is at k=10, where the uplift has already plateaued.
+- Ablate the dots' *presence* rather than their content: attention-mask the
+  dots out at the answer position (or at all positions) while keeping them in
+  the prompt — if accuracy falls to the k=0 level, the benefit is attention
+  to those positions (sink/structure), not their content.
+- `--filler counting --k 10` for generality; a second model with a published
+  lens (Qwen3.5-27B/122B-A10B) to check this is not V4-specific.

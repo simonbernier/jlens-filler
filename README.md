@@ -15,6 +15,7 @@ Stage 1 is API-only (no GPU); stages 2–4 need local weights on a rented GPU bo
 | 2 | `20_lens_readout.py` (`LENS="logit"`) → `21_analyze_readout.py`, `22_agreement_check.py` | **Fig. 3**: the paper's logit-lens picture on V4 Flash, plus a local-vs-API accuracy check | GPU box |
 | 3 | `20_lens_readout.py` (`LENS="jlens"`) → `30_compare_lenses.py` | **the new result**: does the J-lens see more than the logit lens? | GPU box |
 | 4 | `40_attention_study.py` | attention study as in the paper (optional, code ready) | GPU box |
+| 5 | `50_filler_patching.py` | **causal tests**: donor residual patches on the dots (single layer / band / all layers) and J-lens coordinate swaps & ablations, with pre-registered predictions | GPU box |
 
 Shared modules (no numbers = not run directly):
 `config.py` (model + lens registry), `common.py` (model/lens loading, provenance
@@ -127,7 +128,7 @@ to start if the first reply does not parse.
 (smoke test → 20 with both lenses → 21 → 30 → DeepSeek tokenizer preflight),
 logging to `results/pipeline_log.txt`; `run_deepseek_preflight.bat` is the
 tokenizer-only preflight alone. Double-click either on Windows.
-`report_dev_run.md` is the write-up of the 2026-09-01 dev-model run: the bugs
+`REPORT.md` is the consolidated write-up (question → replication → J-lens vs logit lens → k=0 tail → causal tests → conclusion); `report_deepseek_run.md` has the run-level detail. `report_dev_run.md` is the write-up of the 2026-09-01 dev-model run: the bugs
 above, what Qwen3.5-4B does with the task (1% accuracy — it cannot do 2-fact
 addition without reasoning, so it is a pipe-cleaner only), and what the
 DeepSeek path needed (V4 ships no Jinja chat template; `render_chat` uses the

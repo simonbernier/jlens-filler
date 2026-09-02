@@ -224,7 +224,7 @@ def answer(text: str) -> str:
     pt.parse_answer (skip_special_tokens=True would strip it and score the
     reasoning trace's first integer as the prediction)."""
     enc = tok(text, add_special_tokens=False, return_tensors="pt")
-    enc = {k_: v.to(hf.device) for k_, v in enc.items()}
+    enc = {k_: v.to(hf.device) for k_, v in enc.items()}   # includes an all-ones attention_mask
     gen = hf.generate(**enc, max_new_tokens=6, do_sample=False,
                       pad_token_id=tok.eos_token_id)
     return tok.decode(gen[0, enc["input_ids"].shape[1]:], skip_special_tokens=False)
