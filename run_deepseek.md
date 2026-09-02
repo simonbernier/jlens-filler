@@ -191,6 +191,12 @@ fail fast on. If it OOMs, kill the instance inside the first hour and re-rent 8�
   "mHC residual, mHC coefficients detached" but not which collapse; `check_provenance`
   now prints every extra field in the lens file so a recorded choice can be matched.
   If it names a different one, change the single marked line in that function.
+  Checked 2026-09-02: the file records only the fit (25 docs of `NeelNanda/pile-10k`,
+  `t_max=128`, `skip_first=4`, standard estimator, uniform weighting), no collapse.
+  With `hc_head` the smoke test's layer-41 row on "…the country shaped like a boot is"
+  (position −2 = ` boot`) reads `-shaped / shaped / Italy` in both columns — the
+  model's own next-token distribution, as it must be at the lens's target layer where
+  `J_41` is the identity — so the collapse reproduces what lm_head reads.
 - **`kernels` must be installed** (`pip install "kernels>=0.16,<0.17"`, now in
   `requirements.txt`). transformers does not bundle the FP8 matmul: the first forward
   pass fetches the Triton kernel `kernels-community/finegrained-fp8` from the Hub

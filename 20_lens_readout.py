@@ -158,16 +158,21 @@ def locate_positions(tok, text: str, ex: pt.Example, kind: str, k: int
     """Return (negative token positions, n_filler).
 
     The first n_filler entries are filler positions, in order; the rest are the
-    post-filler tail, through position -1. k=0 has no filler region and
-    therefore nothing to read out: it returns no positions, and the run
-    degenerates to greedy answers only — which is exactly what the k=0 baseline
-    is for (22_agreement_check.py needs it to compute uplift).
+    post-filler tail ("Answer:" and the generation prompt), through position -1.
+
+    k=0 has no filler region, so n_filler is 0 and only the tail is read. That
+    tail matters: the operands are decoded at the tail tokens of a filler prompt
+    too, so the k=0 tail is the control for "do the dots add computation, or
+    only more positions doing what 'Answer:' already does?". It also gives
+    22_agreement_check.py the no-filler answers it needs for the uplift.
     """
-    if k == 0:
-        return [], 0
-    filler = pt.make_filler(kind, k)
     enc = tok(text, add_special_tokens=False, return_offsets_mapping=True)
     offsets = enc["offset_mapping"]
+    if k == 0:
+        a0 = text.rfind("Answer:")          # tail starts at the final "Answer:"
+        tail = pt.span_to_negative_positions(offsets, a0, len(text))
+        return tail, 0
+    filler = pt.make_filler(kind, k)
     c0, c1 = pt.final_filler_char_span(text, filler, ex.question)
     fill_neg = pt.span_to_negative_positions(offsets, c0, c1)
     post_neg = list(range(fill_neg[-1] + 1, 0))   # after the filler, up to -1
@@ -225,6 +230,7 @@ def readout_example(
                         rec[f"match_{qname}"] = numeric.decodes(row_logits, qval)
                         rec[f"rank_{qname}"] = numeric.rank(row_logits, qval)
                         rec[f"ctrl_{qname}"] = numeric.decodes(row_logits, cval)
+                        rec[f"ctrl_rank_{qname}"] = numeric.rank(row_logits, cval)
                     rows.append(rec)
     return rows
 
@@ -347,7 +353,7 @@ for i, (ex, msgs) in enumerate(tqdm(dataset, desc=f"readout ({LENS})", unit="ex"
                             reply=str(reply).strip()[:32], pred=pred,
                             correct=correct))
 
-    if positions:                     # k=0 has no filler region: answers only
+    if positions:
         control = dataset[i - 1][0]   # another example's quantities = chance level
         all_rows += readout_example(ex, control, text, positions, n_filler, correct,
                                     apply_fn, numeric, LENSES, pos_chunk=POS_CHUNK)
@@ -373,16 +379,16 @@ answers_df.to_csv(ANS_CSV, index=False)
 print(f"wrote {ANS_CSV}  (accuracy {answers_df.correct.mean():.2%})")
 print(f"longest prompt seen: {max_prompt_tokens} tokens")
 
-if not all_rows:                      # k=0: the baseline run, answers only
-    print(f"\nk=0 has no filler region, so no lens rows were written — this run "
-          f"is the no-filler baseline. Next: 22_agreement_check.py, which needs "
-          f"it to compare local uplift against the API's.")
-else:
-    readout = pd.DataFrame(all_rows)
-    readout.to_csv(OUT_CSV, index=False)
-    print(f"wrote {OUT_CSV} ({len(readout)} rows; {n_positions} positions/example, "
-          f"{n_filler} filler; readout mode={numeric.mode})")
+readout = pd.DataFrame(all_rows)
+readout.to_csv(OUT_CSV, index=False)
+print(f"wrote {OUT_CSV} ({len(readout)} rows; {n_positions} positions/example, "
+      f"{n_filler} filler; readout mode={numeric.mode})")
 
+if n_filler == 0:                     # k=0: baseline answers + the tail readout
+    print(f"\nk=0: no filler region; the tail ('Answer:' onward) was read so 21 can "
+          f"compare it with a filler prompt's tail. Next: 22_agreement_check.py "
+          f"for the local-vs-API uplift.")
+else:
     last = readout[(readout.pos == n_filler - 1) & readout.correct]
     print("\ndecode fraction at the last filler position (correct examples), "
           "with the shuffled-quantity control (ctrl_*) as chance level:")

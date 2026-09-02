@@ -43,6 +43,7 @@ from lens_analysis import (
     print_report,
     readout_mode,
     tag_of,
+    tail_summary,
 )
 
 TAG = "dev_dots-10"        # "" = the most recently written condition in OUTDIR
@@ -169,6 +170,24 @@ with open(js, "w") as f:
     json.dump(summary, f, indent=2)
 print(f"wrote {js}")
 print_report(summary)
+
+# %% [markdown]
+# ## 4. The post-filler tail — are the dots doing anything 'Answer:' doesn't?
+#
+# The operands are decoded at the tail tokens of a filler prompt as well as on
+# the dots. This table (best-over-layers decode fraction per tail token, correct
+# examples) is comparable across k — run 20 with `--k 0` (which reads only the
+# tail) and put the two tables side by side: if the k=0 tail retrieves the
+# operands as well as the k=10 tail does, the dots add retrieval *sites*, not a
+# computation that would otherwise be missing.
+
+# %%
+tail = tail_summary(df, n_filler)
+tail_csv = os.path.join(OUTDIR, f"tail_summary_{TAG}.csv")
+tail.to_csv(tail_csv, index=False)
+print(f"tail tokens (from_end -1 = the answer is predicted here), k={n_filler}:")
+print(tail.to_string(index=False))
+print(f"wrote {tail_csv}")
 
 if len(lenses) < 2:
     print(f"only the {lenses[0]!r} lens here — for the J-lens vs logit-lens "
