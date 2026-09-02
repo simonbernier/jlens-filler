@@ -17,6 +17,15 @@ A. Position patching (parameter-free, in-distribution). A DONOR example with
      donor@L    the same with the DONOR's residual at its own dots (all
                 hyper-connection streams), for L in LAYERS. Only the prefill
                 is patched; layers L+1.. and every decode step run on it.
+     donor_band the donor's dot residual at EVERY layer of BAND at once. A
+                single-layer patch can be healed: the dots keep attending to
+                the recipient's own question at later layers and re-retrieve
+                its operands. Patching the whole band leaves no layer to heal
+                it, so this is the condition that can rule a read out.
+     donor_all  the donor's dot residual at every layer 0..n-2: the dots are
+                entirely the donor's computation. Accuracy at `clean` here
+                means the dots' CONTENT is causally irrelevant — only their
+                presence (as positions / attention targets) carries the uplift.
 
 B. J-lens coordinate edits (paper Sec. 2.5 of the workspace paper), at the dot
    positions only, at every layer of BAND. A token's lens vector at layer l is
@@ -59,7 +68,7 @@ import argparse
 import json
 import math
 import os
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Sequence
 
 import numpy as np
@@ -251,7 +260,6 @@ def j_edit_fns(hf, lens, tok, ex, donor, band):
 @contextmanager
 def edited_per_layer(hf, fns: dict, positions, seq_len):
     """`edited` with a different fn per layer ({layer: fn})."""
-    from contextlib import ExitStack
     with ExitStack() as stack:
         for L, fn in fns.items():
             stack.enter_context(edited(hf, [L], positions, fn, seq_len))
@@ -333,38 +341,43 @@ def plot(df: pd.DataFrame, summary: dict, tag: str, outdir: str):
     acc = [summary[f"donor@{L}"]["accuracy"] for L in layers]
     lo = [summary[f"donor@{L}"]["ci"][0] for L in layers]
     hi = [summary[f"donor@{L}"]["ci"][1] for L in layers]
-
-    jkeys = [k for k in J_EDITS if k in summary]
-    fig, axes = plt.subplots(1, 3 if jkeys else 2, figsize=(18 if jkeys else 12, 4.8))
-    ax = axes[0]
-    ax.errorbar(layers, acc, yerr=[np.subtract(acc, lo), np.subtract(hi, acc)],
-                marker="o", capsize=3, color="C3", label="dots patched from donor at layer L")
-    ax.axhline(summary["clean"]["accuracy"], color="k", ls="-", lw=1.2, label="clean (no patch)")
     self_key = next(k for k in summary if k.startswith("self@"))
-    ax.axhline(summary[self_key]["accuracy"], color="0.5", ls="--", lw=1,
-               label=f"self-patch @{self_key.split('@')[1]} (plumbing check)")
-    if "accuracy_k0_no_filler" in summary:
-        ax.axhline(summary["accuracy_k0_no_filler"], color="C0", ls=":", lw=1.2,
-                   label="k=0 (no filler at all)")
-    ax.set_xlabel("patch layer L (output of block L)")
-    ax.set_ylabel("greedy accuracy")
-    ax.set_title("Accuracy when the dots carry another question's residual", fontsize=10)
-    ax.legend(frameon=False, fontsize=8)
 
-    ax = axes[1]
-    show = ["donor_a1+a2", "a1+donor_a2", "donor_target"]
-    colors = {"donor_a1+a2": "C3", "a1+donor_a2": "C1", "donor_target": "C4"}
-    for c in show:
-        ax.plot(layers, [summary[f"donor@{L}"]["classes"][c] for L in layers],
-                marker="o", color=colors[c], label=c)
-    ax.plot(layers, [summary[f"donor@{L}"]["same_as_clean"] for L in layers],
-            marker="s", color="k", label="prediction unchanged from clean")
-    ax.axhline(summary["chance_donor_derived"], color="k", ls=":", lw=1,
-               label="chance: clean pred already donor-derived")
-    ax.set_xlabel("patch layer L")
-    ax.set_ylabel("fraction of predictions")
-    ax.set_title("Where the answers go (donor_a1+a2 = A1 read from the dots)", fontsize=10)
-    ax.legend(frameon=False, fontsize=8)
+    jkeys = [k for k in list(J_EDITS) + ["donor_band", "donor_all"] if k in summary]
+    panels = (2 if layers else 0) + (1 if jkeys else 0)
+    fig, axes = plt.subplots(1, panels, figsize=(6 * panels, 4.8), squeeze=False)
+    axes = axes[0]
+    if not layers:
+        axes = [None, None, axes[0]]
+    if layers:
+        ax = axes[0]
+        ax.errorbar(layers, acc, yerr=[np.subtract(acc, lo), np.subtract(hi, acc)],
+                    marker="o", capsize=3, color="C3", label="dots patched from donor at layer L")
+        ax.axhline(summary["clean"]["accuracy"], color="k", ls="-", lw=1.2, label="clean (no patch)")
+        ax.axhline(summary[self_key]["accuracy"], color="0.5", ls="--", lw=1,
+                   label=f"self-patch @{self_key.split('@')[1]} (plumbing check)")
+        if "accuracy_k0_no_filler" in summary:
+            ax.axhline(summary["accuracy_k0_no_filler"], color="C0", ls=":", lw=1.2,
+                       label="k=0 (no filler at all)")
+        ax.set_xlabel("patch layer L (output of block L)")
+        ax.set_ylabel("greedy accuracy")
+        ax.set_title("Accuracy when the dots carry another question's residual", fontsize=10)
+        ax.legend(frameon=False, fontsize=8)
+
+        ax = axes[1]
+        show = ["donor_a1+a2", "a1+donor_a2", "donor_target"]
+        colors = {"donor_a1+a2": "C3", "a1+donor_a2": "C1", "donor_target": "C4"}
+        for c in show:
+            ax.plot(layers, [summary[f"donor@{L}"]["classes"][c] for L in layers],
+                    marker="o", color=colors[c], label=c)
+        ax.plot(layers, [summary[f"donor@{L}"]["same_as_clean"] for L in layers],
+                marker="s", color="k", label="prediction unchanged from clean")
+        ax.axhline(summary["chance_donor_derived"], color="k", ls=":", lw=1,
+                   label="chance: clean pred already donor-derived")
+        ax.set_xlabel("patch layer L")
+        ax.set_ylabel("fraction of predictions")
+        ax.set_title("Where the answers go (donor_a1+a2 = A1 read from the dots)", fontsize=10)
+        ax.legend(frameon=False, fontsize=8)
     if jkeys:
         ax = axes[2]
         x = np.arange(len(jkeys))
@@ -386,7 +399,7 @@ def plot(df: pd.DataFrame, summary: dict, tag: str, outdir: str):
         ax.set_xticks(x)
         ax.set_xticklabels(jkeys, rotation=35, ha="right", fontsize=8)
         ax.set_ylabel("fraction of examples")
-        ax.set_title(f"J-lens edits on the dots, layers {min(BAND)}–{max(BAND)}", fontsize=10)
+        ax.set_title(f"J-lens edits (layers {min(BAND)}–{max(BAND)}) and whole-band donor patches", fontsize=10)
         ax.legend(frameon=False, fontsize=7)
     n = summary["clean"]["n"]
     fig.suptitle(f"Causal tests on the {tag} filler positions (n={n}, Wilson 95% CIs)")
@@ -408,7 +421,12 @@ def main():
                     help="donor-patch layers")
     ap.add_argument("--band", type=int, nargs="+", default=list(BAND),
                     help="layers the J-lens swaps/ablations are applied at")
-    ap.add_argument("--no-j-edits", action="store_true", help="position patching only")
+    ap.add_argument("--conditions", nargs="+", default=["donor", "jedits", "band"],
+                    choices=["donor", "jedits", "band"],
+                    help="donor = single-layer donor patches; jedits = J-lens swaps/"
+                         "ablations; band = donor_band + donor_all")
+    ap.add_argument("--out-suffix", default="",
+                    help="suffix for the output files, e.g. _band for a separate run")
     ap.add_argument("--fig2-path", default="data/fig2_2fact.jsonl")
     ap.add_argument("--outdir", default="results")
     args = ap.parse_args()
@@ -418,7 +436,7 @@ def main():
     from common import load_model, load_lens
 
     tag = f"{args.model}_{args.filler}-{args.k}"
-    out_csv = os.path.join(args.outdir, f"patching_{tag}.csv")
+    out_csv = os.path.join(args.outdir, f"patching_{tag}{args.out_suffix}.csv")
     ans_csv = os.path.join(args.outdir, f"answers_{tag}.csv")
     ans_k0 = os.path.join(args.outdir, f"answers_{args.model}_{args.filler}-0.csv")
 
@@ -442,7 +460,9 @@ def main():
     if done:
         print(f"resuming: {len(done)} examples already in {out_csv}")
 
-    capture_layers = sorted(set(args.layers) | {SELF_LAYER})
+    all_layers = list(range(n_layers - 1))
+    capture_layers = sorted(set(args.layers) | {SELF_LAYER}
+                            | (set(all_layers) if "band" in args.conditions else set()))
     mismatch_with_cache = 0
     for i, (ex, msgs) in enumerate(dataset):
         if ex.idx in done:
@@ -481,13 +501,20 @@ def main():
             mismatch_with_cache += 1
         with patched(hf, SELF_LAYER, dots, own[SELF_LAYER], S):
             record("self", SELF_LAYER, greedy_answer(hf, tok, ids))
-        for L in args.layers:
-            with patched(hf, L, dots, theirs[L], S):
-                record("donor", L, greedy_answer(hf, tok, ids))
-        if not args.no_j_edits:
+        if "donor" in args.conditions:
+            for L in args.layers:
+                with patched(hf, L, dots, theirs[L], S):
+                    record("donor", L, greedy_answer(hf, tok, ids))
+        if "jedits" in args.conditions:
             fns = j_edit_fns(hf, lens, tok, ex, donor, band)
             for name in J_EDITS:
                 with edited_per_layer(hf, fns[name], dots, S):
+                    record(name, np.nan, greedy_answer(hf, tok, ids))
+        if "band" in args.conditions:
+            for name, layers_ in (("donor_band", band), ("donor_all", all_layers)):
+                with ExitStack() as stack:
+                    for L in layers_:
+                        stack.enter_context(patched(hf, L, dots, theirs[L], S))
                     record(name, np.nan, greedy_answer(hf, tok, ids))
 
         if (i + 1) % 10 == 0 or i == 0:
@@ -497,15 +524,18 @@ def main():
             acc = df[df.condition == "clean"].correct.mean()
             self_ok = (df[df.condition == "self"].set_index("idx").pred
                        == df[df.condition == "clean"].set_index("idx").pred).mean()
+            line = (f"[{done_n}/{len(dataset)}] clean acc {acc:.2%} | "
+                    f"self-patch = clean on {self_ok:.0%}")
+            for name in ("donor_band", "donor_all", "jswap_A1", "jswap_ctrl"):
+                g = df[df.condition == name]
+                if len(g):
+                    line += (f" | {name} acc {g.correct.mean():.2%}, "
+                             f"donor_a1+a2 {(g.cls == 'donor_a1+a2').mean():.0%}")
             late = df[(df.condition == "donor") & (df.layer == max(args.layers))]
-            sw = df[df.condition == "jswap_A1"]
-            ct = df[df.condition == "jswap_ctrl"]
-            print(f"[{done_n}/{len(dataset)}] clean acc {acc:.2%} | self-patch = clean on "
-                  f"{self_ok:.0%} | donor@{max(args.layers)} acc {late.correct.mean():.2%}, "
-                  f"donor_a1+a2 {(late.cls == 'donor_a1+a2').mean():.0%} | "
-                  + (f"jswap_A1 -> donor_a1+a2 {(sw.cls == 'donor_a1+a2').mean():.0%}, "
-                     f"ctrl swap acc {ct.correct.mean():.2%} | " if len(sw) else "")
-                  + f"clean≠cached answers: {mismatch_with_cache}")
+            if len(late):
+                line += (f" | donor@{max(args.layers)} acc {late.correct.mean():.2%}, "
+                         f"donor_a1+a2 {(late.cls == 'donor_a1+a2').mean():.0%}")
+            print(line + f" | clean≠cached answers: {mismatch_with_cache}")
 
     df = pd.DataFrame(rows)
     df.to_csv(out_csv, index=False)
@@ -513,7 +543,7 @@ def main():
 
     k0_acc = pd.read_csv(ans_k0).correct.mean() if os.path.exists(ans_k0) else None
     summary = summarize(df, k0_acc)
-    js = os.path.join(args.outdir, f"patching_summary_{tag}.json")
+    js = os.path.join(args.outdir, f"patching_summary_{tag}{args.out_suffix}.json")
     with open(js, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"wrote {js}\n")
@@ -523,7 +553,7 @@ def main():
             print(f"{key:>10}: acc {s['accuracy']:.3f} {s['ci']} | same as clean "
                   f"{s['same_as_clean']:.2f} | {top}")
     print(f"chance (clean pred already donor-derived): {summary['chance_donor_derived']}")
-    plot(df, summary, tag, args.outdir)
+    plot(df, summary, tag + args.out_suffix, args.outdir)
 
 
 if __name__ == "__main__":
