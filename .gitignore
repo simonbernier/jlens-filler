@@ -1,9 +1,9 @@
 # --- Experiment outputs (regenerate by re-running the scripts) ---
-results/
+#results/
 *.png
 *.csv
-*.jsonl
-algorithm_summary_*.json
+#*.jsonl
+#algorithm_summary_*.json
 
 # --- Vendored J-lens reference implementation (cloned by setup_env.sh) ---
 jacobian-lens/

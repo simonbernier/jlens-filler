@@ -1,0 +1,345 @@
+
+===== pipeline start 2026-09-01 18:13:57 (C:\Users\SimonBernier\.conda\envs\jlens-filler\python.exe) =====
+
+----- smoke test: python 00_smoke_test.py -----
+[provenance] model_id='Qwen/Qwen3.5-4B'  target_layer=30  n_prompts=25  -> matches config
+[load_model] Qwen/Qwen3.5-4B  (4bit=False, device_map=None)
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+[vram] 7.93 GiB allocated (7.93 reserved) of 12.0 GiB on NVIDIA GeForce RTX 4070 SUPER after load
+[load_lens] camilablank/workspace-lenses/qwen3.5-4b/j-lens/lens.pt
+
+== prompt construction on the real tokenizer ==
+  ok  message layout: system + 5 few-shot pairs + final user
+  ok  generation prompt has no open <think> (reasoning off)
+  ok  char span is exactly the filler
+  ok  filler tokens located, negative + contiguous
+  prompt: 334 tokens; post-filler tail read by 20: ['\n', 'Answer', ':', '<|im_end|>', '\n', '<|im_start|>', 'assistant', '\n', '<think>', '\n\n', '</think>', '\n\n']
+  ok  numeric token table non-empty
+  [numeric readout] mode=prefix — this tokenizer SPLITS numbers into digits (only 3% of values in 0..300 are single-token), so a value is 'decoded' when the top numeric token is the FIRST token of its spelling (137 -> '1'). Coarser than the paper's criterion — fine for pipe-cleaning, but run the headline decode on a digit-grouping tokenizer (DeepSeek V3/V4) for mode=exact.
+  NOTE: run the headline decode (stages 2-3) on DeepSeek, whose tokenizer groups digits — this model can only pipe-clean.
+
+== greedy answer on the task prompt (reasoning must be OFF) ==
+  reply: '42<|im_end|>\n<|endoftext|>' -> parsed 42
+  ok  reply parses to an integer (no reasoning trace)
+
+lens: 31 source layers (d_model=2560, n_prompts=25)
+prompt: 'Fact: The currency used in the country shaped like a boot is'   position=-2
+
+ layer | JACOBIAN lens top-5                           | logit-lens top-5
+--------------------------------------------------------------------------------------------------------------
+     0 | 'ting' 'lessly' '儿的' 'ing' 'erior'            | ' boot' 'boot' ' Boot' 'Boot' '-boot'
+     1 | 'ting' '儿的' 'lessly' 'ing' 'erior'            | ' boot' 'boot' ' Boot' 'Boot' '-boot'
+     2 | 'ting' 'lessly' '儿的' 'erior' 'ing'            | ' boot' 'boot' ' Boot' '-boot' 'Boot'
+     3 | 'ting' '儿的' 'lessly' '盔' 'ing'                | ' boot' 'boot' ' Boot' '-boot' '/boot'
+     4 | 'ting' '儿的' 'lessly' 'ing' 'erior'            | ' boot' '�' 'boot' '靴' 'load'
+     5 | 'ting' 'ing' '儿的' 'lessly' '盔'                | ' boot' 'boot' 'ild' ' فرض' 'soles'
+     6 | 'ing' 'ting' '儿的' ' boots' 'lessly'           | '룩' 'injau' 'MESS' ' cán' '越长'
+     7 | '儿的' 'ting' 'ing' 'lessly' '盔'                | 'UDI' 'GPC' 'ิร์' 'edom' ' heel'
+     8 | ' boots' '盔' 'ting' '靴' 'lessly'              | 'oman' 'edom' 'ולי' 'GPC' ' Urlaubs'
+     9 | '意大利' ' italian' ' heel' ' Italian' '盔'       | '长在' ' Urlaubs' 'oman' 'Siamo' '会后'
+    10 | ' heel' '意大利' 'soles' ' italian' ' Italian'   | '长在' 'Siamo' ' vaguely' 'ulus' ' Ау'
+    11 | ' heel' '意大利' 'soles' ' italian' ' Ital'      | ' rampant' 'Siamo' 'KNOWN' 'outlined' ' milione'
+    12 | 'soles' ' heel' '-shaped' '意大利' ' Ital'       | 'shaw' ' ril' ' جام' '半边' '幅'
+    13 | 'soles' ' heel' '-shaped' ' Ital' '象征着'       | 'shaw' '会后' 'LEAR' 'KNOWN' '万家'
+    14 | 'soles' ' heel' '-shaped' 'oreal' ' Ital'     | '举世' '万家' ' Lager' '长在' 'shaw'
+    15 | 'soles' '?' ' Ital' 'oreal' ' Pob'            | 'วย' '举世' 'shaw' 'rea' '眷'
+    16 | '?' 'soles' ' Ital' 'oreal' '意大利'             | 'shaw' 'วย' 'amaz' 'REA' '举世'
+    17 | '?' 'soles' 'oreal' '-shaped' ' heel'         | 'shaw' ' Ау' 'ٍ' '举世' 'วย'
+    18 | '-shaped' '?' 'soles' 'oreal' '-like'         | ' lodging' 'uled' 'soles' 'shaw' 'ograd'
+    19 | '-shaped' 'soles' '-like' '?' ' Italy'        | 'KNOWN' '-shaped' 'CONTACT' 'tenzione' 'soles'
+    20 | '-shaped' 'soles' ' Italy' ' Italian' '-like' | '-shaped' 'shapes' '😀' 'soles' 'rient'
+    21 | 'soles' '/boot' ' Shoe' ' heel' 'boot'        | 'soles' '袜' 'leneck' '😀' 'boot'
+    22 | '-shaped' '形状' ' shape' '的形状' 'shape'         | '形状' '形状的' '的形状' 'shape' '-shaped'
+    23 | ' shape' '-shaped' '的形状' '形状' 'shape'         | '的形状' '形状的' '形状' 'shape' '-shaped'
+    24 | ' shape' '-shaped' '形状' '的形状' 'shape'         | '的形状' '形状的' 'shape' '形状' '-shaped'
+    25 | ' shape' 'shape' '形状' '的形状' ' shaped'         | '的形状' 'shape' '形状' '形状的' ' shape'
+    26 | ' boot' 'boot' ' Boot' 'Boot' ' boots'        | 'boot' ' boot' ' Boot' '/boot' '靴'
+    27 | ' boot' 'boot' ' Boot' 'Boot' ' boots'        | 'boot' ' boot' '/boot' ' Boot' '靴'
+    28 | ' boot' 'boot' ' Boot' ' boots' '/boot'       | 'boot' ' boot' '/boot' ' Boot' '-boot'
+    29 | ' boot' 'boot' ' Boot' ' Shoe' ' shoe'        | 'boot' ' boot' '/boot' ' Boot' '-boot'
+    30 | ' is' ' shape' '-shaped' ' heel' ' shaped'    | ' is' ' shape' '-shaped' ' heel' ' shaped'
+  ok  lens returned layers
+  ok  vocab dim looks right
+  ok  J-lens and logit-lens differ somewhere (transport not a no-op)
+
+PASS: pipeline works. J-lens and logit-lens differ at 28/31 layers (as expected).
+----- smoke test: exit code 0 -----
+
+----- readout, both lenses: python 20_lens_readout.py --model dev --n 300 --k 10 --lens both --regen-answers -----
+dev_dots-10  lens=both  n=300  source=fig2
+  -> results\lens_readout_dev_dots-10_both.csv
+  -> results\answers_dev_dots-10.csv
+[provenance] model_id='Qwen/Qwen3.5-4B'  target_layer=30  n_prompts=25  -> matches config
+[load_model] Qwen/Qwen3.5-4B  (4bit=False, device_map=None)
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+[vram] 7.93 GiB allocated (7.93 reserved) of 12.0 GiB on NVIDIA GeForce RTX 4070 SUPER after load
+[load_lens] camilablank/workspace-lenses/qwen3.5-4b/j-lens/lens.pt
+
+lens: 31 source layers (layers 0..30, d_model=2560, n_prompts=25)
+[numeric readout] mode=prefix — this tokenizer SPLITS numbers into digits (only 3% of values in 0..300 are single-token), so a value is 'decoded' when the top numeric token is the FIRST token of its spelling (137 -> '1'). Coarser than the paper's criterion — fine for pipe-cleaning, but run the headline decode on a digit-grouping tokenizer (DeepSeek V3/V4) for mode=exact.
+NOTE: prefix mode — this model can pipe-clean the pipeline, but the headline decode numbers should come from DeepSeek.
+[data] replaying stage 1: 300 examples from data/fig2_2fact.jsonl at k=10 (idx joins onto results/fig2_raw.jsonl)
+[prompt] 357 tokens, 22 readout positions (10 filler) — max_seq_len=fitted per prompt
+[prompt] post-filler tail read: ['\n', 'Answer', ':', '<|im_end|>', '\n', '<|im_start|>', 'assistant', '\n', '<think>', '\n\n', '</think>', '\n\n']
+[probe] oxygen+magnesium=20: reply 'Answer: 12<|im_end|>' -> pred 12
+----- readout, both lenses: exit code 3221225786 -----
+
+===== pipeline start 2026-09-01 18:22:28 (C:\Users\SimonBernier\.conda\envs\jlens-filler\python.exe) =====
+
+----- smoke test: python 00_smoke_test.py -----
+[provenance] model_id='Qwen/Qwen3.5-4B'  target_layer=30  n_prompts=25  -> matches config
+[load_model] Qwen/Qwen3.5-4B  (4bit=False, device_map=None)
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+[vram] 7.93 GiB allocated (7.93 reserved) of 12.0 GiB on NVIDIA GeForce RTX 4070 SUPER after load
+[load_lens] camilablank/workspace-lenses/qwen3.5-4b/j-lens/lens.pt
+
+== prompt construction on the real tokenizer ==
+  ok  message layout: system + 5 few-shot pairs + final user
+  ok  generation prompt has no open <think> (reasoning off)
+  ok  char span is exactly the filler
+  ok  filler tokens located, negative + contiguous
+  prompt: 334 tokens; post-filler tail read by 20: ['\n', 'Answer', ':', '<|im_end|>', '\n', '<|im_start|>', 'assistant', '\n', '<think>', '\n\n', '</think>', '\n\n']
+  ok  numeric token table non-empty
+  [numeric readout] mode=prefix — this tokenizer SPLITS numbers into digits (only 3% of values in 0..300 are single-token), so a value is 'decoded' when the top numeric token is the FIRST token of its spelling (137 -> '1'). Coarser than the paper's criterion — fine for pipe-cleaning, but run the headline decode on a digit-grouping tokenizer (DeepSeek V3/V4) for mode=exact.
+  NOTE: run the headline decode (stages 2-3) on DeepSeek, whose tokenizer groups digits — this model can only pipe-clean.
+
+== greedy answer on the task prompt (reasoning must be OFF) ==
+  reply: '42<|im_end|>\n<|endoftext|>' -> parsed 42
+  ok  reply parses to an integer (no reasoning trace)
+
+lens: 31 source layers (d_model=2560, n_prompts=25)
+prompt: 'Fact: The currency used in the country shaped like a boot is'   position=-2
+
+ layer | JACOBIAN lens top-5                           | logit-lens top-5
+--------------------------------------------------------------------------------------------------------------
+     0 | 'ting' 'lessly' '儿的' 'ing' 'erior'            | ' boot' 'boot' ' Boot' 'Boot' '-boot'
+     1 | 'ting' '儿的' 'lessly' 'ing' 'erior'            | ' boot' 'boot' ' Boot' 'Boot' '-boot'
+     2 | 'ting' 'lessly' '儿的' 'erior' 'ing'            | ' boot' 'boot' ' Boot' '-boot' 'Boot'
+     3 | 'ting' '儿的' 'lessly' '盔' 'ing'                | ' boot' 'boot' ' Boot' '-boot' '/boot'
+     4 | 'ting' '儿的' 'lessly' 'ing' 'erior'            | ' boot' '�' 'boot' '靴' 'load'
+     5 | 'ting' 'ing' '儿的' 'lessly' '盔'                | ' boot' 'boot' 'ild' ' فرض' 'soles'
+     6 | 'ing' 'ting' '儿的' ' boots' 'lessly'           | '룩' 'injau' 'MESS' ' cán' '越长'
+     7 | '儿的' 'ting' 'ing' 'lessly' '盔'                | 'UDI' 'GPC' 'ิร์' 'edom' ' heel'
+     8 | ' boots' '盔' 'ting' '靴' 'lessly'              | 'oman' 'edom' 'ולי' 'GPC' ' Urlaubs'
+     9 | '意大利' ' italian' ' heel' ' Italian' '盔'       | '长在' ' Urlaubs' 'oman' 'Siamo' '会后'
+    10 | ' heel' '意大利' 'soles' ' italian' ' Italian'   | '长在' 'Siamo' ' vaguely' 'ulus' ' Ау'
+    11 | ' heel' '意大利' 'soles' ' italian' ' Ital'      | ' rampant' 'Siamo' 'KNOWN' 'outlined' ' milione'
+    12 | 'soles' ' heel' '-shaped' '意大利' ' Ital'       | 'shaw' ' ril' ' جام' '半边' '幅'
+    13 | 'soles' ' heel' '-shaped' ' Ital' '象征着'       | 'shaw' '会后' 'LEAR' 'KNOWN' '万家'
+    14 | 'soles' ' heel' '-shaped' 'oreal' ' Ital'     | '举世' '万家' ' Lager' '长在' 'shaw'
+    15 | 'soles' '?' ' Ital' 'oreal' ' Pob'            | 'วย' '举世' 'shaw' 'rea' '眷'
+    16 | '?' 'soles' ' Ital' 'oreal' '意大利'             | 'shaw' 'วย' 'amaz' 'REA' '举世'
+    17 | '?' 'soles' 'oreal' '-shaped' ' heel'         | 'shaw' ' Ау' 'ٍ' '举世' 'วย'
+    18 | '-shaped' '?' 'soles' 'oreal' '-like'         | ' lodging' 'uled' 'soles' 'shaw' 'ograd'
+    19 | '-shaped' 'soles' '-like' '?' ' Italy'        | 'KNOWN' '-shaped' 'CONTACT' 'tenzione' 'soles'
+    20 | '-shaped' 'soles' ' Italy' ' Italian' '-like' | '-shaped' 'shapes' '😀' 'soles' 'rient'
+    21 | 'soles' '/boot' ' Shoe' ' heel' 'boot'        | 'soles' '袜' 'leneck' '😀' 'boot'
+    22 | '-shaped' '形状' ' shape' '的形状' 'shape'         | '形状' '形状的' '的形状' 'shape' '-shaped'
+    23 | ' shape' '-shaped' '的形状' '形状' 'shape'         | '的形状' '形状的' '形状' 'shape' '-shaped'
+    24 | ' shape' '-shaped' '形状' '的形状' 'shape'         | '的形状' '形状的' 'shape' '形状' '-shaped'
+    25 | ' shape' 'shape' '形状' '的形状' ' shaped'         | '的形状' 'shape' '形状' '形状的' ' shape'
+    26 | ' boot' 'boot' ' Boot' 'Boot' ' boots'        | 'boot' ' boot' ' Boot' '/boot' '靴'
+    27 | ' boot' 'boot' ' Boot' 'Boot' ' boots'        | 'boot' ' boot' '/boot' ' Boot' '靴'
+    28 | ' boot' 'boot' ' Boot' ' boots' '/boot'       | 'boot' ' boot' '/boot' ' Boot' '-boot'
+    29 | ' boot' 'boot' ' Boot' ' Shoe' ' shoe'        | 'boot' ' boot' '/boot' ' Boot' '-boot'
+    30 | ' is' ' shape' '-shaped' ' heel' ' shaped'    | ' is' ' shape' '-shaped' ' heel' ' shaped'
+  ok  lens returned layers
+  ok  vocab dim looks right
+  ok  J-lens and logit-lens differ somewhere (transport not a no-op)
+
+PASS: pipeline works. J-lens and logit-lens differ at 28/31 layers (as expected).
+----- smoke test: exit code 0 -----
+
+----- readout, both lenses: python 20_lens_readout.py --model dev --n 300 --k 10 --lens both --regen-answers -----
+dev_dots-10  lens=both  n=300  source=fig2
+  -> results\lens_readout_dev_dots-10_both.csv
+  -> results\answers_dev_dots-10.csv
+[provenance] model_id='Qwen/Qwen3.5-4B'  target_layer=30  n_prompts=25  -> matches config
+[load_model] Qwen/Qwen3.5-4B  (4bit=False, device_map=None)
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+[vram] 7.93 GiB allocated (7.93 reserved) of 12.0 GiB on NVIDIA GeForce RTX 4070 SUPER after load
+[load_lens] camilablank/workspace-lenses/qwen3.5-4b/j-lens/lens.pt
+
+lens: 31 source layers (layers 0..30, d_model=2560, n_prompts=25)
+[numeric readout] mode=prefix — this tokenizer SPLITS numbers into digits (only 3% of values in 0..300 are single-token), so a value is 'decoded' when the top numeric token is the FIRST token of its spelling (137 -> '1'). Coarser than the paper's criterion — fine for pipe-cleaning, but run the headline decode on a digit-grouping tokenizer (DeepSeek V3/V4) for mode=exact.
+NOTE: prefix mode — this model can pipe-clean the pipeline, but the headline decode numbers should come from DeepSeek.
+[data] replaying stage 1: 300 examples from data/fig2_2fact.jsonl at k=10 (idx joins onto results/fig2_raw.jsonl)
+[prompt] 357 tokens, 22 readout positions (10 filler) — max_seq_len=fitted per prompt
+[prompt] post-filler tail read: ['\n', 'Answer', ':', '<|im_end|>', '\n', '<|im_start|>', 'assistant', '\n', '<think>', '\n\n', '</think>', '\n\n']
+[probe] oxygen+magnesium=20: reply 'Answer: 12<|im_end|>' -> pred 12
+running accuracy: 1.00%  (unparsed replies: 0)
+wrote results\answers_dev_dots-10.csv  (accuracy 1.00%)
+longest prompt seen: 363 tokens
+wrote results\lens_readout_dev_dots-10_both.csv (409200 rows; 22 positions/example, 10 filler; readout mode=prefix)
+
+decode fraction at the last filler position (correct examples), with the shuffled-quantity control (ctrl_*) as chance level:
+             match_A1  ctrl_A1  match_A2  ctrl_A2  match_sum  ctrl_sum
+lens  layer                                                           
+jlens 0           0.0    0.000     0.000    0.000      0.000       0.0
+      1           0.0    0.000     0.000    0.000      0.000       0.0
+      2           0.0    0.000     0.000    0.000      0.000       0.0
+      3           0.0    0.000     0.000    0.000      0.000       0.0
+      4           0.0    0.000     0.000    0.000      0.000       0.0
+      5           0.0    0.000     0.000    0.000      0.000       0.0
+      6           0.0    0.000     0.000    0.000      0.000       0.0
+      7           0.0    0.000     0.000    0.000      0.000       0.0
+      8           0.0    0.000     0.000    0.000      0.000       0.0
+      9           0.0    0.000     0.000    0.000      0.000       0.0
+      10          0.0    0.000     0.000    0.000      0.000       0.0
+      11          0.0    0.000     0.000    0.000      0.000       0.0
+      12          0.0    0.000     0.000    0.000      0.000       0.0
+      13          0.0    0.000     0.000    0.000      0.000       0.0
+      14          0.0    0.333     0.000    0.333      0.000       0.0
+      15          0.0    0.000     0.000    0.000      0.000       0.0
+      16          0.0    0.000     0.000    0.000      0.000       0.0
+      17          0.0    0.000     0.000    0.000      0.000       0.0
+      18          0.0    0.000     0.000    0.000      0.000       0.0
+      19          0.0    0.000     0.000    0.000      0.000       0.0
+      20          0.0    0.000     0.000    0.000      0.000       0.0
+      21          0.0    0.000     0.000    0.000      0.000       0.0
+      22          0.0    0.000     0.000    0.000      0.000       0.0
+      23          0.0    0.000     0.000    0.000      0.000       0.0
+      24          0.0    0.000     0.000    0.000      0.000       0.0
+      25          0.0    0.000     0.000    0.000      0.000       0.0
+      26          0.0    0.000     0.000    0.000      0.000       0.0
+      27          0.0    0.000     0.000    0.000      0.000       0.0
+      28          0.0    0.000     0.333    0.000      0.333       0.0
+      29          0.0    0.000     0.333    0.000      0.333       0.0
+      30          0.0    0.333     0.000    0.333      0.000       0.0
+logit 0           0.0    0.000     0.000    0.000      0.000       0.0
+      1           0.0    0.000     0.000    0.000      0.000       0.0
+      2           0.0    0.000     0.000    0.000      0.000       0.0
+      3           0.0    0.000     0.000    0.000      0.000       0.0
+      4           0.0    0.000     0.000    0.000      0.000       0.0
+      5           0.0    0.000     0.000    0.000      0.000       0.0
+      6           0.0    0.000     0.000    0.000      0.000       0.0
+      7           0.0    0.000     0.000    0.000      0.000       0.0
+      8           0.0    0.000     0.000    0.000      0.000       0.0
+      9           0.0    0.000     0.000    0.000      0.000       0.0
+      10          0.0    0.333     0.000    0.333      0.000       0.0
+      11          0.0    0.000     0.000    0.000      0.000       0.0
+      12          0.0    0.000     0.000    0.000      0.000       0.0
+      13          0.0    0.333     0.000    0.333      0.000       0.0
+      14          0.0    0.000     0.000    0.000      0.000       0.0
+      15          0.0    0.000     0.000    0.000      0.000       0.0
+      16          0.0    0.000     0.000    0.000      0.000       0.0
+      17          0.0    0.000     0.000    0.000      0.000       0.0
+      18          0.0    0.000     0.000    0.000      0.000       0.0
+      19          0.0    0.000     0.000    0.000      0.000       0.0
+      20          0.0    0.000     0.333    0.000      0.333       0.0
+      21          0.0    0.333     0.000    0.333      0.000       0.0
+      22          0.0    0.333     0.000    0.333      0.000       0.0
+      23          0.0    0.000     0.000    0.000      0.000       0.0
+      24          0.0    0.000     0.000    0.000      0.000       0.0
+      25          0.0    0.000     0.000    0.000      0.000       0.0
+      26          0.0    0.000     0.000    0.000      0.000       0.0
+      27          0.0    0.000     0.000    0.333      0.000       0.0
+      28          0.0    0.000     0.000    0.333      0.000       0.0
+      29          0.0    0.000     0.000    0.000      0.000       0.0
+      30          0.0    0.333     0.000    0.333      0.000       0.0
+
+next: 21_analyze_readout.py (TAG = 'dev_dots-10')
+      22_agreement_check.py to check local accuracy against the API
+----- readout, both lenses: exit code 0 -----
+
+----- figure 3 heatmaps: python 21_analyze_readout.py --tag dev_dots-10 -----
+[find_readouts] using results\lens_readout_dev_dots-10_both.csv and ignoring older single-lens files for the same condition: ['results\\lens_readout_dev_dots-10_logit.csv']
+tag 'dev_dots-10', 1 file(s):
+   results\lens_readout_dev_dots-10_both.csv
+300 examples | 31 layers | 22 positions (10 filler) | lenses: ['jlens', 'logit'] | decode mode: prefix | accuracy 1.00%
+wrote results\fig3_dev_dots-10_jlens.png
+C:\Users\SimonBernier\Documents\jlens-filler\21_analyze_readout.py:152: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+  plt.show()
+wrote results\fig3_dev_dots-10_logit.png
+C:\Users\SimonBernier\Documents\jlens-filler\21_analyze_readout.py:152: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+  plt.show()
+wrote results\algorithm_summary_dev_dots-10_jlens-logit.json
+
+=================== WHAT ALGORITHM? ===================
+
+--- jlens (correct examples) ---
+    A1: decoded-in-filler    1.0 (control 0.667) | first layer (median) 23.0 | mean position 3.53 | per-cell 0.032 vs control 0.016
+    A2: decoded-in-filler    1.0 (control 1.0) | first layer (median) 8.0 | mean position 4.62 | per-cell 0.065 vs control 0.037
+   sum: decoded-in-filler    1.0 (control 1.0) | first layer (median) 23.0 | mean position 5.38 | per-cell 0.034 vs control 0.031
+  sum decoded in post/answer tail: 1.0
+  A1 & A2 co-decoded at one layer (parallel retrieval): 1.0
+
+--- logit (correct examples) ---
+    A1: decoded-in-filler    1.0 (control 1.0) | first layer (median) 4.0 | mean position 4.11 | per-cell 0.049 vs control 0.032
+    A2: decoded-in-filler    1.0 (control 1.0) | first layer (median) 4.0 | mean position 3.31 | per-cell 0.042 vs control 0.051
+   sum: decoded-in-filler    1.0 (control 1.0) | first layer (median) 7.0 | mean position 4.29 | per-cell 0.03 vs control 0.056
+  sum decoded in post/answer tail: 1.0
+  A1 & A2 co-decoded at one layer (parallel retrieval): 1.0
+
+--- wrong examples (logit lens) ---
+   {'A1': 1.0, 'A2': 0.987, 'sum': 0.987}   <- paper's signature: A1/A2 present, sum absent
+
+Reading guide: retrieval-then-composition = A1/A2 first-layer << sum first-layer; position specialization = mean_position(A1) < mean_position(A2); J-lens 'sees more' = higher decoded-in-filler fractions and/or smaller first-layer at matched positions. A fraction that does not beat its shuffled control is noise, whatever the lens.
+=======================================================
+
+----- figure 3 heatmaps: exit code 0 -----
+
+----- J-lens vs logit-lens: python 30_compare_lenses.py --tag dev_dots-10 -----
+[find_readouts] using results\lens_readout_dev_dots-10_both.csv and ignoring older single-lens files for the same condition: ['results\\lens_readout_dev_dots-10_logit.csv']
+tag 'dev_dots-10', 1 file(s):
+   results\lens_readout_dev_dots-10_both.csv
+300 examples | 31 layers | 22 positions (10 filler) | decode mode: prefix | accuracy 1.00%
+wrote results\jlens_vs_logit_dev_dots-10.png
+C:\Users\SimonBernier\Documents\jlens-filler\30_compare_lenses.py:146: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+  plt.show()
+wrote results\compare_summary_dev_dots-10.json
+
+=================== WHAT ALGORITHM? ===================
+
+--- jlens (correct examples) ---
+    A1: decoded-in-filler    1.0 (control 0.667) | first layer (median) 23.0 | mean position 3.53 | per-cell 0.032 vs control 0.016
+    A2: decoded-in-filler    1.0 (control 1.0) | first layer (median) 8.0 | mean position 4.62 | per-cell 0.065 vs control 0.037
+   sum: decoded-in-filler    1.0 (control 1.0) | first layer (median) 23.0 | mean position 5.38 | per-cell 0.034 vs control 0.031
+  sum decoded in post/answer tail: 1.0
+  A1 & A2 co-decoded at one layer (parallel retrieval): 1.0
+
+--- logit (correct examples) ---
+    A1: decoded-in-filler    1.0 (control 1.0) | first layer (median) 4.0 | mean position 4.11 | per-cell 0.049 vs control 0.032
+    A2: decoded-in-filler    1.0 (control 1.0) | first layer (median) 4.0 | mean position 3.31 | per-cell 0.042 vs control 0.051
+   sum: decoded-in-filler    1.0 (control 1.0) | first layer (median) 7.0 | mean position 4.29 | per-cell 0.03 vs control 0.056
+  sum decoded in post/answer tail: 1.0
+  A1 & A2 co-decoded at one layer (parallel retrieval): 1.0
+
+--- wrong examples (logit lens) ---
+   {'A1': 1.0, 'A2': 0.987, 'sum': 0.987}   <- paper's signature: A1/A2 present, sum absent
+
+Reading guide: retrieval-then-composition = A1/A2 first-layer << sum first-layer; position specialization = mean_position(A1) < mean_position(A2); J-lens 'sees more' = higher decoded-in-filler fractions and/or smaller first-layer at matched positions. A fraction that does not beat its shuffled control is noise, whatever the lens.
+=======================================================
+
+----- J-lens vs logit-lens: exit code 0 -----
+
+----- deepseek tokenizer preflight: python 00_smoke_test.py --model deepseek --tokenizer-only -----
+C:\Users\SimonBernier\.conda\envs\jlens-filler\Lib\site-packages\huggingface_hub\file_download.py:141: UserWarning: `huggingface_hub` cache-system uses symlinks by default to efficiently store duplicated files but your machine does not support them in C:\Users\SimonBernier\.cache\huggingface\hub\models--deepseek-ai--DeepSeek-V4-Flash. Caching files will still work but in a degraded version that might require more space on your disk. This warning can be disabled by setting the `HF_HUB_DISABLE_SYMLINKS_WARNING` environment variable. For more details, see https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations.
+To support symlinks on Windows, you either need to activate Developer Mode or to run Python as an administrator. In order to activate developer mode, see this article: https://docs.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development
+  warnings.warn(message)
+tokenizer: deepseek-ai/DeepSeek-V4-Flash
+
+== prompt construction on the real tokenizer ==
+  ok  message layout: system + 5 few-shot pairs + final user
+Traceback (most recent call last):
+  File "C:\Users\SimonBernier\Documents\jlens-filler\00_smoke_test.py", line 185, in <module>
+    main()
+  File "C:\Users\SimonBernier\Documents\jlens-filler\00_smoke_test.py", line 179, in main
+    tokenizer_smoke(args.model)
+  File "C:\Users\SimonBernier\Documents\jlens-filler\00_smoke_test.py", line 158, in tokenizer_smoke
+    prompt_smoke(tok)
+  File "C:\Users\SimonBernier\Documents\jlens-filler\00_smoke_test.py", line 53, in prompt_smoke
+    text = pt.render_chat(tok, msgs)     # raises if the template leaves <think> open
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\SimonBernier\Documents\jlens-filler\paper_tasks.py", line 301, in render_chat
+    text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\SimonBernier\.conda\envs\jlens-filler\Lib\site-packages\transformers\tokenization_utils_base.py", line 3085, in apply_chat_template
+    chat_template = self.get_chat_template(chat_template, tools)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\SimonBernier\.conda\envs\jlens-filler\Lib\site-packages\transformers\tokenization_utils_base.py", line 3270, in get_chat_template
+    raise ValueError(
+ValueError: Cannot use chat template functions because tokenizer.chat_template is not set and no template argument was passed! For information about writing templates and setting the tokenizer.chat_template attribute, please see the documentation at https://huggingface.co/docs/transformers/main/en/chat_templating
+----- deepseek tokenizer preflight: exit code 1 -----
+stopping at the first failure
+===== pipeline end 2026-09-01 18:44:56 =====

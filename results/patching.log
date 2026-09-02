@@ -1,0 +1,312 @@
+deepseek_dots-10: 300 examples, donor-patch layers [30, 35, 39], self-check @35, J-edit band [33, 34, 35, 36, 37, 38, 39, 40]
+[checkpoint] ships quantized: quant_method=fp8 fmt=e4m3 weight_block_size=[128, 128]
+[load_model] deepseek-ai/DeepSeek-V4-Flash  (4bit=False, device_map=auto)
+[transformers] This FP8 model spans multiple CUDA devices in one process; routing its FP8 linear and experts layers through Triton/grouped_mm instead of DeepGEMM (DeepGEMM's cached kernels are bound to a single CUDA context and corrupt across devices). Run tensor/expert parallel (one device per process) to use the faster DeepGEMM path.
+[vram] 70.99 GiB allocated (75.96 reserved) of 139.8 GiB on NVIDIA H200 after load
+[load_model] hyper-connection residual (4 streams): collapsing with model.hc_head before every lens readout
+[load_lens] camilablank/workspace-lenses/deepseek-v4-flash/j-lens/lens.pt
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (1024, 4096, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.82s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (32768, 1024, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.52s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (512, 4096, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.45s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_grouped_kernel,
+with key as (1024, 4096, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8', 'torch.int32', 'torch.int32'),
+finished after 1.62s,
+best config selected: num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (4096, 8192, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.46s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (2048, 4096, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.46s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (4096, 2048, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.37s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (8192, 1024, 128, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.43s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (1024, 4096, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.31s,
+best config selected: num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (32768, 1024, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.39s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (512, 4096, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.37s,
+best config selected: num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_grouped_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_grouped_kernel,
+with key as (1024, 4096, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8', 'torch.int32', 'torch.int32'),
+finished after 1.40s,
+best config selected: num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (4096, 8192, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.34s,
+best config selected: num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (2048, 4096, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.40s,
+best config selected: num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (4096, 2048, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.38s,
+best config selected: num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None;
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 2, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 8, num_ctas: 1, num_stages: 4, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 2, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 3, maxnreg: None
+Autotuning kernel w8a8_block_dynamic_fp8_matmul_kernel with config num_warps: 16, num_ctas: 1, num_stages: 4, maxnreg: None
+Triton autotuning for function w8a8_block_dynamic_fp8_matmul_kernel,
+with key as (8192, 1024, 16, 'torch.bfloat16', 'torch.float8_e4m3fn', 'torch.bfloat16', 'torch.uint8'),
+finished after 1.38s,
+best config selected: num_warps: 4, num_ctas: 1, num_stages: 4, maxnreg: None;
+[1/300] clean acc 100.00% | self-patch = clean on 100% | donor@39 acc 100.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 100.00% | clean≠cached answers: 0
+[10/300] clean acc 50.00% | self-patch = clean on 100% | donor@39 acc 50.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 50.00% | clean≠cached answers: 0
+[20/300] clean acc 35.00% | self-patch = clean on 100% | donor@39 acc 40.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 35.00% | clean≠cached answers: 0
+[30/300] clean acc 43.33% | self-patch = clean on 100% | donor@39 acc 46.67%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 43.33% | clean≠cached answers: 0
+[40/300] clean acc 42.50% | self-patch = clean on 100% | donor@39 acc 45.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 42.50% | clean≠cached answers: 0
+[50/300] clean acc 34.00% | self-patch = clean on 100% | donor@39 acc 38.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 34.00% | clean≠cached answers: 0
+[60/300] clean acc 36.67% | self-patch = clean on 100% | donor@39 acc 40.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 35.00% | clean≠cached answers: 0
+[70/300] clean acc 38.57% | self-patch = clean on 100% | donor@39 acc 41.43%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 37.14% | clean≠cached answers: 0
+[80/300] clean acc 41.25% | self-patch = clean on 100% | donor@39 acc 42.50%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 40.00% | clean≠cached answers: 0
+[90/300] clean acc 43.33% | self-patch = clean on 100% | donor@39 acc 44.44%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 41.11% | clean≠cached answers: 0
+[100/300] clean acc 45.00% | self-patch = clean on 100% | donor@39 acc 47.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 44.00% | clean≠cached answers: 0
+[110/300] clean acc 47.27% | self-patch = clean on 100% | donor@39 acc 49.09%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 46.36% | clean≠cached answers: 0
+[120/300] clean acc 50.00% | self-patch = clean on 100% | donor@39 acc 51.67%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 49.17% | clean≠cached answers: 0
+[130/300] clean acc 48.46% | self-patch = clean on 100% | donor@39 acc 50.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 47.69% | clean≠cached answers: 0
+[140/300] clean acc 47.86% | self-patch = clean on 100% | donor@39 acc 49.29%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 47.14% | clean≠cached answers: 0
+[150/300] clean acc 47.33% | self-patch = clean on 100% | donor@39 acc 48.67%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 46.67% | clean≠cached answers: 0
+[160/300] clean acc 46.25% | self-patch = clean on 100% | donor@39 acc 47.50%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 45.62% | clean≠cached answers: 0
+[170/300] clean acc 46.47% | self-patch = clean on 100% | donor@39 acc 47.06%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 46.47% | clean≠cached answers: 0
+[180/300] clean acc 47.22% | self-patch = clean on 100% | donor@39 acc 47.78%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 47.22% | clean≠cached answers: 0
+[190/300] clean acc 47.37% | self-patch = clean on 100% | donor@39 acc 47.89%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 47.37% | clean≠cached answers: 0
+[200/300] clean acc 48.50% | self-patch = clean on 100% | donor@39 acc 49.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 48.50% | clean≠cached answers: 0
+[210/300] clean acc 48.10% | self-patch = clean on 100% | donor@39 acc 48.57%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 48.10% | clean≠cached answers: 0
+[220/300] clean acc 48.64% | self-patch = clean on 100% | donor@39 acc 49.09%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 48.64% | clean≠cached answers: 0
+[230/300] clean acc 49.13% | self-patch = clean on 100% | donor@39 acc 49.57%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 49.13% | clean≠cached answers: 0
+[240/300] clean acc 47.92% | self-patch = clean on 100% | donor@39 acc 48.75%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 48.33% | clean≠cached answers: 0
+[250/300] clean acc 47.60% | self-patch = clean on 100% | donor@39 acc 48.40%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 48.00% | clean≠cached answers: 0
+[260/300] clean acc 46.54% | self-patch = clean on 100% | donor@39 acc 47.31%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 46.92% | clean≠cached answers: 0
+[270/300] clean acc 46.67% | self-patch = clean on 100% | donor@39 acc 47.41%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 47.04% | clean≠cached answers: 0
+[280/300] clean acc 46.79% | self-patch = clean on 100% | donor@39 acc 47.50%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 47.14% | clean≠cached answers: 0
+[290/300] clean acc 46.90% | self-patch = clean on 100% | donor@39 acc 47.59%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 47.24% | clean≠cached answers: 0
+[300/300] clean acc 46.33% | self-patch = clean on 100% | donor@39 acc 47.00%, donor_a1+a2 0% | jswap_A1 -> donor_a1+a2 0%, ctrl swap acc 46.67% | clean≠cached answers: 0
+
+wrote results/patching_deepseek_dots-10.csv (3600 rows, 300 examples)
+wrote results/patching_summary_deepseek_dots-10.json
+
+     clean: acc 0.463 [0.408, 0.52] | same as clean 1.00 | {'target': 0.463, 'other': 0.52}
+  donor@30: acc 0.447 [0.391, 0.503] | same as clean 0.74 | {'target': 0.447, 'other': 0.533}
+  donor@35: acc 0.440 [0.385, 0.497] | same as clean 0.77 | {'target': 0.44, 'other': 0.537}
+  donor@39: acc 0.470 [0.414, 0.527] | same as clean 0.86 | {'target': 0.47, 'other': 0.507}
+   jabl_A1: acc 0.463 [0.408, 0.52] | same as clean 0.93 | {'target': 0.463, 'other': 0.52}
+ jabl_A1A2: acc 0.450 [0.395, 0.507] | same as clean 0.92 | {'target': 0.45, 'other': 0.527}
+   jabl_A2: acc 0.440 [0.385, 0.497] | same as clean 0.90 | {'target': 0.44, 'other': 0.54}
+  jswap_A1: acc 0.463 [0.408, 0.52] | same as clean 0.92 | {'target': 0.463, 'other': 0.523}
+jswap_A1x2: acc 0.463 [0.408, 0.52] | same as clean 0.81 | {'target': 0.463, 'other': 0.517}
+  jswap_A2: acc 0.457 [0.401, 0.513] | same as clean 0.90 | {'target': 0.457, 'other': 0.523}
+jswap_ctrl: acc 0.467 [0.411, 0.523] | same as clean 0.92 | {'target': 0.467, 'other': 0.517}
+   self@35: acc 0.463 [0.408, 0.52] | same as clean 1.00 | {'target': 0.463, 'other': 0.52}
+chance (clean pred already donor-derived): 0.007
+wrote results/patching_deepseek_dots-10.png

@@ -1,0 +1,88 @@
+{
+  "clean": {
+    "n": 300,
+    "accuracy": 0.463,
+    "ci": [
+      0.408,
+      0.52
+    ],
+    "same_as_clean": 1.0,
+    "classes": {
+      "target": 0.463,
+      "donor_target": 0.003,
+      "donor_a1+a2": 0.0,
+      "a1+donor_a2": 0.0,
+      "a1": 0.0,
+      "a2": 0.01,
+      "donor_a1": 0.003,
+      "donor_a2": 0.0,
+      "unparsed": 0.0,
+      "other": 0.52
+    }
+  },
+  "donor_all": {
+    "n": 300,
+    "accuracy": 0.427,
+    "ci": [
+      0.372,
+      0.483
+    ],
+    "same_as_clean": 0.7,
+    "classes": {
+      "target": 0.427,
+      "donor_target": 0.0,
+      "donor_a1+a2": 0.0,
+      "a1+donor_a2": 0.0,
+      "a1": 0.0,
+      "a2": 0.02,
+      "donor_a1": 0.0,
+      "donor_a2": 0.0,
+      "unparsed": 0.0,
+      "other": 0.553
+    }
+  },
+  "donor_band": {
+    "n": 300,
+    "accuracy": 0.45,
+    "ci": [
+      0.395,
+      0.507
+    ],
+    "same_as_clean": 0.723,
+    "classes": {
+      "target": 0.45,
+      "donor_target": 0.003,
+      "donor_a1+a2": 0.0,
+      "a1+donor_a2": 0.003,
+      "a1": 0.0,
+      "a2": 0.023,
+      "donor_a1": 0.003,
+      "donor_a2": 0.0,
+      "unparsed": 0.0,
+      "other": 0.517
+    }
+  },
+  "self@35": {
+    "n": 300,
+    "accuracy": 0.463,
+    "ci": [
+      0.408,
+      0.52
+    ],
+    "same_as_clean": 1.0,
+    "classes": {
+      "target": 0.463,
+      "donor_target": 0.003,
+      "donor_a1+a2": 0.0,
+      "a1+donor_a2": 0.0,
+      "a1": 0.0,
+      "a2": 0.01,
+      "donor_a1": 0.003,
+      "donor_a2": 0.0,
+      "unparsed": 0.0,
+      "other": 0.52
+    }
+  },
+  "chance_donor_derived": 0.007,
+  "accuracy_k0_no_filler": 0.35
+}

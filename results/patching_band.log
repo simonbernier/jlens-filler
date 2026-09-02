@@ -1,0 +1,18 @@
+deepseek_dots-10: 300 examples, donor-patch layers [30, 35, 39], self-check @35, J-edit band [33, 34, 35, 36, 37, 38, 39, 40]
+[checkpoint] ships quantized: quant_method=fp8 fmt=e4m3 weight_block_size=[128, 128]
+[load_model] deepseek-ai/DeepSeek-V4-Flash  (4bit=False, device_map=auto)
+[transformers] This FP8 model spans multiple CUDA devices in one process; routing its FP8 linear and experts layers through Triton/grouped_mm instead of DeepGEMM (DeepGEMM's cached kernels are bound to a single CUDA context and corrupt across devices). Run tensor/expert parallel (one device per process) to use the faster DeepGEMM path.
+[vram] 70.99 GiB allocated (75.96 reserved) of 139.8 GiB on NVIDIA H200 after load
+[load_model] hyper-connection residual (4 streams): collapsing with model.hc_head before every lens readout
+[load_lens] camilablank/workspace-lenses/deepseek-v4-flash/j-lens/lens.pt
+resuming: 300 examples already in results/patching_deepseek_dots-10_band.csv
+
+wrote results/patching_deepseek_dots-10_band.csv (1200 rows, 300 examples)
+wrote results/patching_summary_deepseek_dots-10_band.json
+
+     clean: acc 0.463 [0.408, 0.52] | same as clean 1.00 | {'target': 0.463, 'other': 0.52}
+ donor_all: acc 0.427 [0.372, 0.483] | same as clean 0.70 | {'target': 0.427, 'other': 0.553}
+donor_band: acc 0.450 [0.395, 0.507] | same as clean 0.72 | {'target': 0.45, 'other': 0.517}
+   self@35: acc 0.463 [0.408, 0.52] | same as clean 1.00 | {'target': 0.463, 'other': 0.52}
+chance (clean pred already donor-derived): 0.007
+wrote results/patching_deepseek_dots-10_band.png

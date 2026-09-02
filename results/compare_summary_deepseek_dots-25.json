@@ -1,0 +1,51 @@
+{
+  "jlens": {
+    "A1_decoded_in_filler_frac": 1.0,
+    "A1_decoded_in_filler_frac_control": 0.604,
+    "A1_cell_frac": 0.035,
+    "A1_cell_frac_control": 0.005,
+    "A1_first_layer_median": 33.0,
+    "A1_mean_position": 11.67,
+    "A2_decoded_in_filler_frac": 1.0,
+    "A2_decoded_in_filler_frac_control": 0.511,
+    "A2_cell_frac": 0.037,
+    "A2_cell_frac_control": 0.005,
+    "A2_first_layer_median": 32.0,
+    "A2_mean_position": 10.97,
+    "sum_decoded_in_filler_frac": 0.871,
+    "sum_decoded_in_filler_frac_control": 0.403,
+    "sum_cell_frac": 0.014,
+    "sum_cell_frac_control": 0.003,
+    "sum_first_layer_median": 38.0,
+    "sum_mean_position": 11.47,
+    "sum_decoded_in_post_frac": 0.942,
+    "parallel_A1_A2_same_layer_frac": 1.0
+  },
+  "logit": {
+    "A1_decoded_in_filler_frac": 1.0,
+    "A1_decoded_in_filler_frac_control": 0.504,
+    "A1_cell_frac": 0.035,
+    "A1_cell_frac_control": 0.006,
+    "A1_first_layer_median": 34.0,
+    "A1_mean_position": 11.76,
+    "A2_decoded_in_filler_frac": 0.993,
+    "A2_decoded_in_filler_frac_control": 0.432,
+    "A2_cell_frac": 0.036,
+    "A2_cell_frac_control": 0.005,
+    "A2_first_layer_median": 32.0,
+    "A2_mean_position": 11.09,
+    "sum_decoded_in_filler_frac": 0.827,
+    "sum_decoded_in_filler_frac_control": 0.36,
+    "sum_cell_frac": 0.014,
+    "sum_cell_frac_control": 0.005,
+    "sum_first_layer_median": 38.0,
+    "sum_mean_position": 11.54,
+    "sum_decoded_in_post_frac": 0.95,
+    "parallel_A1_A2_same_layer_frac": 0.993
+  },
+  "wrong_examples_logit": {
+    "A1": 1.0,
+    "A2": 1.0,
+    "sum": 0.466
+  }
+}
