@@ -38,6 +38,12 @@ B. J-lens coordinate edits (paper Sec. 2.5 of the workspace paper), at the dot
      jswap_ctrl   two numbers absent from both prompts (a=1): must do nothing
      jabl_A1 / jabl_A2 / jabl_A1A2   project the operand direction(s) out
 
+   Manipulation check (`--conditions lenscheck`): with jswap_A1 active, the
+   J-lens is read at the dots across BAND. If it now decodes the donor's A1
+   where it decoded A1 before, the edit did what it was designed to do and a
+   null on the answer is about the model not using that coordinate; if it
+   still decodes A1, the edit was absorbed and the null means nothing.
+
 Each prediction is classified: the true sum, the donor's sum, a MIXED sum
 (donor_a1+a2 = A1 replaced, a1+donor_a2 = A2 replaced), a bare operand, other.
 
@@ -266,6 +272,24 @@ def edited_per_layer(hf, fns: dict, positions, seq_len):
         yield
 
 
+def lens_check(model, lens, numeric, text, dots, band, ex, donor, fns=None, seq_len=None):
+    """Fraction of dots whose top numeric J-lens token is A1 / the donor's A1,
+    per layer of `band`, with the J edit `fns` active (or clean if None)."""
+    from common import apply_lens
+    from contextlib import nullcontext
+    hf = model._hf_model
+    ctx = edited_per_layer(hf, fns, dots, seq_len) if fns else nullcontext()
+    with ctx:
+        logits = apply_lens(lens, model, text, dots, use_jacobian=True)
+    out = []
+    for L in band:
+        rows = logits[L].numpy()
+        top = [numeric.top_value(r) for r in rows]
+        out.append(dict(layer=L, frac_a1=np.mean([t == ex.a1 for t in top]),
+                        frac_donor_a1=np.mean([t == donor.a1 for t in top])))
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Bookkeeping
 # --------------------------------------------------------------------------- #
@@ -421,10 +445,11 @@ def main():
                     help="donor-patch layers")
     ap.add_argument("--band", type=int, nargs="+", default=list(BAND),
                     help="layers the J-lens swaps/ablations are applied at")
-    ap.add_argument("--conditions", nargs="+", default=["donor", "jedits", "band"],
-                    choices=["donor", "jedits", "band"],
+    ap.add_argument("--conditions", nargs="+", default=["donor", "jedits", "band", "lenscheck"],
+                    choices=["donor", "jedits", "band", "lenscheck"],
                     help="donor = single-layer donor patches; jedits = J-lens swaps/"
-                         "ablations; band = donor_band + donor_all")
+                         "ablations; band = donor_band + donor_all; lenscheck = does "
+                         "the J-lens read the swapped value at the dots?")
     ap.add_argument("--out-suffix", default="",
                     help="suffix for the output files, e.g. _band for a separate run")
     ap.add_argument("--fig2-path", default="data/fig2_2fact.jsonl")
@@ -461,6 +486,9 @@ def main():
         print(f"resuming: {len(done)} examples already in {out_csv}")
 
     all_layers = list(range(n_layers - 1))
+    numeric = pt.build_numeric_readout(tok)
+    check_rows = []
+    check_csv = os.path.join(args.outdir, f"patching_lenscheck_{tag}{args.out_suffix}.csv")
     capture_layers = sorted(set(args.layers) | {SELF_LAYER}
                             | (set(all_layers) if "band" in args.conditions else set()))
     mismatch_with_cache = 0
@@ -510,6 +538,12 @@ def main():
             for name in J_EDITS:
                 with edited_per_layer(hf, fns[name], dots, S):
                     record(name, np.nan, greedy_answer(hf, tok, ids))
+        if "lenscheck" in args.conditions:
+            fns = fns if "jedits" in args.conditions else j_edit_fns(hf, lens, tok, ex, donor, band)
+            for name, f in (("clean", None), ("jswap_A1", fns["jswap_A1"]),
+                            ("jswap_A1x2", fns["jswap_A1x2"])):
+                for r in lens_check(model, lens, numeric, text, dots, band, ex, donor, f, S):
+                    check_rows.append(dict(idx=ex.idx, condition=name, **r))
         if "band" in args.conditions:
             for name, layers_ in (("donor_band", band), ("donor_all", all_layers)):
                 with ExitStack() as stack:
@@ -520,6 +554,8 @@ def main():
         if (i + 1) % 10 == 0 or i == 0:
             df = pd.DataFrame(rows)
             df.to_csv(out_csv, index=False)
+            if check_rows:
+                pd.DataFrame(check_rows).to_csv(check_csv, index=False)
             done_n = df.idx.nunique()
             acc = df[df.condition == "clean"].correct.mean()
             self_ok = (df[df.condition == "self"].set_index("idx").pred
@@ -540,6 +576,15 @@ def main():
     df = pd.DataFrame(rows)
     df.to_csv(out_csv, index=False)
     print(f"\nwrote {out_csv} ({len(df)} rows, {df.idx.nunique()} examples)")
+    if check_rows:
+        ck = pd.DataFrame(check_rows)
+        ck.to_csv(check_csv, index=False)
+        print(f"wrote {check_csv}\nmanipulation check — J-lens at the dots, mean fraction "
+              f"of dots decoding A1 / the donor's A1 (best layer in the band):")
+        for name, g in ck.groupby("condition"):
+            by = g.groupby("layer")[["frac_a1", "frac_donor_a1"]].mean()
+            print(f"  {name:>11}: A1 {by.frac_a1.max():.2f} @L{int(by.frac_a1.idxmax())} | "
+                  f"donor A1 {by.frac_donor_a1.max():.2f} @L{int(by.frac_donor_a1.idxmax())}")
 
     k0_acc = pd.read_csv(ans_k0).correct.mean() if os.path.exists(ans_k0) else None
     summary = summarize(df, k0_acc)
