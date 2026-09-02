@@ -404,6 +404,32 @@ def span_to_negative_positions(
     return [i - n for i in picked]
 
 
+def readout_positions(tok, text: str, ex: "Example", kind: str, k: int
+                      ) -> Tuple[List[int], int]:
+    """Token positions a lens (or a patch) should touch in a rendered prompt.
+
+    Returns (negative token positions, n_filler). The first n_filler entries
+    are the filler positions, in order; the rest are the post-filler tail
+    ("Answer:" and the generation prompt) through position -1, the token the
+    answer is predicted from. Negative indices survive a BOS being added or
+    not by whoever re-tokenizes the prompt.
+
+    k=0 has no filler region: n_filler is 0 and only the tail, from the final
+    "Answer:" on, is returned — the control for whether the dots add
+    computation or only more positions doing what "Answer:" already does.
+    """
+    enc = tok(text, add_special_tokens=False, return_offsets_mapping=True)
+    offsets = enc["offset_mapping"]
+    if k == 0:
+        a0 = text.rfind("Answer:")
+        return span_to_negative_positions(offsets, a0, len(text)), 0
+    filler = make_filler(kind, k)
+    c0, c1 = final_filler_char_span(text, filler, ex.question)
+    fill_neg = span_to_negative_positions(offsets, c0, c1)
+    post_neg = list(range(fill_neg[-1] + 1, 0))    # after the filler, up to -1
+    return fill_neg + post_neg, len(fill_neg)
+
+
 # --------------------------------------------------------------------------- #
 # Numeric-token readout (paper Sec. 4.2: "restricting to numeric tokens")
 #

@@ -153,30 +153,7 @@ if numeric.mode == "prefix":
 # being added or not by whoever re-tokenizes the prompt.
 
 # %%
-def locate_positions(tok, text: str, ex: pt.Example, kind: str, k: int
-                     ) -> tuple[list[int], int]:
-    """Return (negative token positions, n_filler).
-
-    The first n_filler entries are filler positions, in order; the rest are the
-    post-filler tail ("Answer:" and the generation prompt), through position -1.
-
-    k=0 has no filler region, so n_filler is 0 and only the tail is read. That
-    tail matters: the operands are decoded at the tail tokens of a filler prompt
-    too, so the k=0 tail is the control for "do the dots add computation, or
-    only more positions doing what 'Answer:' already does?". It also gives
-    22_agreement_check.py the no-filler answers it needs for the uplift.
-    """
-    enc = tok(text, add_special_tokens=False, return_offsets_mapping=True)
-    offsets = enc["offset_mapping"]
-    if k == 0:
-        a0 = text.rfind("Answer:")          # tail starts at the final "Answer:"
-        tail = pt.span_to_negative_positions(offsets, a0, len(text))
-        return tail, 0
-    filler = pt.make_filler(kind, k)
-    c0, c1 = pt.final_filler_char_span(text, filler, ex.question)
-    fill_neg = pt.span_to_negative_positions(offsets, c0, c1)
-    post_neg = list(range(fill_neg[-1] + 1, 0))   # after the filler, up to -1
-    return fill_neg + post_neg, len(fill_neg)
+locate_positions = pt.readout_positions   # (filler positions, tail) — see paper_tasks
 
 
 # %% [markdown]
