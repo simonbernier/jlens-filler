@@ -189,8 +189,7 @@ def main():
     all_rows = []
     for i, ex in enumerate(dataset):
         msgs = pt.build_messages(ex, args.filler, args.k)
-        text = tok.apply_chat_template(msgs, tokenize=False,
-                                       add_generation_prompt=True)
+        text = pt.render_chat(tok, msgs)              # reasoning off
         qpos, n_filler, spans = build_spans(tok, text, ex, args.filler, args.k)
         attns, gen_logits = forward_attn(text)
         # cheap correctness proxy: argmax of the next-token logits

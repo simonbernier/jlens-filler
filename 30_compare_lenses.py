@@ -9,7 +9,10 @@
 # * difference maps (J-lens − logit-lens decode fraction) per quantity;
 # * per-layer curves of the best-over-positions decode fraction, per lens — a
 #   leftward J-lens shift = earlier crystallization than the logit lens can read
-#   (see `ANALYSIS.md` for what each outcome would mean);
+#   (see `ANALYSIS.md` for what each outcome would mean) — with the
+#   shuffled-quantity control dotted underneath: a curve that sits on its
+#   control is chance, and a J-lens/logit-lens gap that the controls share is
+#   a property of the lens's numeric-token bias, not of the computation;
 # * a side-by-side algorithm summary (first-layer medians, in-filler fractions).
 #
 # Outputs in `results/`:
@@ -37,8 +40,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from lens_analysis import (QUANTITIES, algorithm_summary, find_readouts, grid,
-                           load, mode_note, n_filler_of, print_report,
-                           readout_mode, tag_of)
+                           has_control, load, mode_note, n_filler_of,
+                           print_report, readout_mode, tag_of)
 
 TAG = ""            # "" = the most recently written condition in OUTDIR
 OUTDIR = "results"
@@ -97,8 +100,17 @@ print(f"{df.idx.nunique()} examples | {df.layer.nunique()} layers | "
 # quantity is present earlier than the logit lens can see. Correct examples only.
 
 # %%
+MIN_CORRECT = 20    # fewer correct examples than this and the maps are noise
+
+
 def compare_lenses(df, n_filler: int, tag: str, outdir: str):
     cor = df[df.correct]
+    n_cor = cor.idx.nunique()
+    subset = f"correct examples, n={n_cor}"
+    if n_cor < MIN_CORRECT:          # e.g. the dev model, which gets ~1% right
+        cor = df
+        subset = f"ALL examples, n={df.idx.nunique()} — only {n_cor} correct"
+        print(f"only {n_cor} correct examples: comparing lenses over all of them")
     fig, axes = plt.subplots(2, 3, figsize=(12, 6.5))
     for c, q in enumerate(QUANTITIES):
         layers_j, poss, gj = grid(cor[cor.lens == "jlens"], f"match_{q}")
@@ -115,16 +127,23 @@ def compare_lenses(df, n_filler: int, tag: str, outdir: str):
         if c == 0:
             ax.set_ylabel("source layer")
         fig.colorbar(im, ax=ax, fraction=0.046)
-        # per-layer curves: best-over-positions decode fraction
+        # per-layer curves: best-over-positions decode fraction, with the
+        # shuffled-quantity control (dotted) as the chance level of the same
+        # max-over-positions statistic
         ax2 = axes[1, c]
-        for lens, g, layers in (("jlens", gj, layers_j), ("logit", gl, layers_l)):
-            ax2.plot(layers, np.nanmax(g, axis=1), marker=".", label=lens)
+        for lens, g, layers, color in (("jlens", gj, layers_j, "C0"),
+                                       ("logit", gl, layers_l, "C1")):
+            ax2.plot(layers, np.nanmax(g, axis=1), marker=".", color=color, label=lens)
+            if has_control(cor):
+                _, _, gc = grid(cor[cor.lens == lens], f"ctrl_{q}")
+                ax2.plot(layers, np.nanmax(gc, axis=1), ls=":", color=color,
+                         label=f"{lens} control")
         ax2.set_xlabel("source layer")
         ax2.set_title(f"{q}: max decode fraction over positions", fontsize=10)
         if c == 0:
             ax2.set_ylabel("decode fraction")
-            ax2.legend(frameon=False)
-    fig.suptitle(f"J-lens vs logit-lens (correct examples) — {tag}{mode_note(df)}")
+            ax2.legend(frameon=False, fontsize=8)
+    fig.suptitle(f"J-lens vs logit-lens ({subset}) — {tag}{mode_note(df)}")
     fig.tight_layout()
     path = os.path.join(outdir, f"jlens_vs_logit_{tag}.png")
     fig.savefig(path, dpi=150)

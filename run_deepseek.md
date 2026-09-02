@@ -63,6 +63,41 @@ vLLM has purpose-built kernels for this checkpoint and would sidestep the questi
 entirely, but it is not an option here: jlens reads the residual stream through
 forward hooks, and vLLM does not expose it. This has to run on HF transformers.
 
+The second free preflight is the tokenizer (a few MB, no GPU):
+
+```bash
+python 00_smoke_test.py --model deepseek --tokenizer-only
+```
+
+It renders the real task prompt through the real chat template and reports the
+three things that bit the dev model before any weights were involved:
+
+- **there is no Jinja chat template.** V4 ships `tokenizer.chat_template = None`
+  and `apply_chat_template` raises; the prompt format is the Python module
+  `encoding/encoding_dsv4.py` in the weights repo. `paper_tasks.render_chat`
+  detects the missing template, downloads that one file and calls its
+  `encode_messages(msgs, thinking_mode="chat")`. Verified 2026-09-01 on the
+  real tokenizer: the prompt is
+  `<｜begin▁of▁sentence｜>{system}<｜User｜>…<｜Assistant｜></think>`, 270 tokens
+  at k=10;
+- **reasoning is off** — V4 Flash is a hybrid reasoning model; `thinking_mode=
+  "chat"` closes reasoning with a bare `</think>` right after the assistant
+  marker, and `render_chat` still fails loudly if a `<think>` is left open. On
+  the dev model (Qwen, whose Jinja template defaults to thinking on) this bug
+  produced a 0%-accuracy run whose every reply was `"Thinking Process: 1."`;
+- **the post-filler tail** — the exact tokens between the last dot and the
+  generation point, all of which 20 reads (the last one is where the answer is
+  predicted). On V4 Flash it is `Answer : <｜Assistant｜> </think>`; on Qwen it
+  is 12 tokens including the `<think></think>` pair that turns reasoning off;
+- **the numeric decode mode** — `exact` on V4 Flash (301 single-token numerals
+  in 0..300), which is what makes this the model for headline numbers; the dev
+  model only gets `prefix`;
+- **BOS handling** — the encoder renders `<｜begin▁of▁sentence｜>` into the
+  prompt text, and jlens's own `encode` would tokenize with special tokens (and
+  forces `add_bos_token` on), risking a second BOS. `common.load_model`
+  overrides the lens's `encode` to tokenize the rendered text verbatim, exactly
+  as generation does, and `apply_lens` checks the token count.
+
 ## 2. Pick a box
 
 **4×H100 80GB (320 GB)** is the default: 2× the weights, ~$11/hr on Vast at the time
@@ -94,8 +129,9 @@ export HF_HOME=/workspace/hf      # do this BEFORE setup_env.sh — keeps the we
 export HF_TOKEN=hf_...            # needed for deepseek weights
 bash setup_env.sh
 source .venv/bin/activate         # in new shells; `conda activate jlens-filler` if the pod has conda
-python 00_smoke_test.py --model deepseek     # FIRST: does the big lens load + apply?
-python 20_lens_readout.py --model deepseek --n 40 --k 10   # then a short readout run
+python 00_smoke_test.py --model deepseek --tokenizer-only  # template + tail + decode mode, no weights
+python 00_smoke_test.py --model deepseek     # FIRST: does the big lens load + apply? does the reply parse?
+python 20_lens_readout.py --model deepseek --n 40 --k 10 --lens both   # then a short readout run
 ```
 
 Run the smoke test before anything else — it is what tells you the load worked, the
@@ -137,7 +173,19 @@ fail fast on. If it OOMs, kill the instance inside the first hour and re-rent 8�
   truncating, but it still stops the run.
 - **Cost control:** start with `--n 2 --k 10` to confirm it runs end to end before a
   full sweep. Both CSVs checkpoint every 10 examples, so an interrupted sweep keeps
-  what it had.
+  what it had. Use `--lens both`: one model load, both lenses, and 30 prefers the
+  single `_both.csv` over stale single-lens files of the same condition.
+- **Read the probe lines before walking away.** 20 prints the prompt length, the
+  tail tokens it will read and the model's first greedy reply, and stops if that
+  reply has no integer in it or if a cached `answers_<tag>.csv` disagrees with the
+  model (a leftover from a broken run would otherwise be reused silently).
+- **Stale answer caches:** `answers_<tag>.csv` is reused across lens passes by
+  design. After any prompt or template change, pass `--regen-answers` once.
+- **Interpreting the heatmaps:** every readout row carries a shuffled-quantity
+  control (`ctrl_*`, the same test against another example's A1/A2/sum); 21 and
+  30 show it next to the real fractions. A quantity is only "decoded" where it
+  beats that control — the any-layer-any-position aggregates saturate on noise
+  even in exact mode (43 layers × k positions of argmax draws).
 - **Don't expect the API and the local weights to agree exactly.** Same weights do not
   mean same outputs across serving stacks: MoE routing is batch-composition sensitive,
   and providers differ in kernels, tensor-parallel degree and attention backend. The

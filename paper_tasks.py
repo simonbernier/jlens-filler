@@ -283,6 +283,60 @@ def build_messages(ex: Example, kind: str, k: int) -> List[dict]:
     return msgs
 
 
+def deepseek_v4_encoder(repo_id: str):
+    """`encode_messages` from the DeepSeek V4 weights repo.
+
+    DeepSeek V4 (Flash/Pro) publishes no Jinja chat template — the tokenizer
+    loads with `chat_template=None` and `apply_chat_template` raises. The
+    format is defined by `encoding/encoding_dsv4.py` in the repo instead
+    (standard-library only), whose `encode_messages(messages, thinking_mode)`
+    renders `<｜begin▁of▁sentence｜>{system}<｜User｜>...<｜Assistant｜>` and,
+    with `thinking_mode="chat"`, closes reasoning with a bare `</think>` right
+    after the assistant marker. The rendered string already carries the BOS.
+    """
+    import importlib.util
+    from huggingface_hub import hf_hub_download
+
+    path = hf_hub_download(repo_id, "encoding/encoding_dsv4.py")
+    spec = importlib.util.spec_from_file_location("encoding_dsv4", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.encode_messages
+
+
+def render_chat(tok, msgs: List[dict]) -> str:
+    """Render chat messages to the prompt string the model is run on — with
+    reasoning OFF, which is the paper's answer-immediately setting and what
+    the stage-1 API sweep used (`api_common.REASONING`).
+
+    Both target families are hybrid reasoning models that open a `<think>`
+    block in the generation prompt by default. Left on, every greedy "answer"
+    is the start of a reasoning trace ("Thinking Process: 1.") and the lens
+    reads a prompt the model is about to reason over rather than answer —
+    which is what a first Qwen3.5-4B run of 20 produced (0% accuracy, every
+    reply identical). The off switch is a template variable on Qwen3/3.5
+    (`enable_thinking`; DeepSeek V3.1-era Jinja templates call it `thinking`,
+    and Jinja ignores variables a template does not use, so both are passed),
+    and `thinking_mode="chat"` in DeepSeek V4's own encoder (see
+    `deepseek_v4_encoder`). The check afterwards catches a template that
+    honours neither.
+    """
+    if getattr(tok, "chat_template", None) is None:
+        # DeepSeek V4 ships no Jinja template at all: apply_chat_template raises.
+        # Its prompt format lives in a Python module in the weights repo.
+        text = deepseek_v4_encoder(tok.name_or_path)(msgs, thinking_mode="chat")
+    else:
+        text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True,
+                                       enable_thinking=False, thinking=False)
+    if text.count("<think>") > text.count("</think>"):
+        raise ValueError(
+            "the chat template left a <think> block open in the generation prompt, "
+            "so the model would reason instead of answering. This tokenizer's "
+            "template must use a different reasoning switch than enable_thinking/"
+            "thinking — check tok.chat_template.")
+    return text
+
+
 def parse_answer(text: str) -> Optional[int]:
     """First integer in the model's reply, else None.
 
@@ -297,7 +351,9 @@ def parse_answer(text: str) -> Optional[int]:
         There is no answer; return None so it reads as unparsed rather than as a
         confident wrong prediction.
 
-    Only fires when the reply is decoded with skip_special_tokens=False.
+    Only fires when the reply is decoded with skip_special_tokens=False —
+    with skip_special_tokens=True the <think> tag is stripped and a reasoning
+    trace parses as a confident wrong answer.
     """
     if "</think>" in text:
         text = text.rsplit("</think>", 1)[1]

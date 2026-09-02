@@ -317,8 +317,12 @@ echo "  OPENROUTER_API_KEY=sk-or-...    # 10/11 (OpenRouter)"
 echo
 echo "Next:"
 echo "  python 00_smoke_test.py --api   # API-path check (stage 1, no GPU)"
+echo "  python 00_smoke_test.py --model deepseek --tokenizer-only"
+echo "                                  # DeepSeek prompt preflight on the tokenizer alone:"
+echo "                                  # reasoning off, tail tokens, decode mode (no weights)"
 if [ "$HAS_GPU" -eq 1 ]; then
-  echo "  python 00_smoke_test.py                    # dev model on this GPU"
+  echo "  python 00_smoke_test.py                    # dev model on this GPU (incl. one greedy answer)"
+  echo "  python run_qwen_pipeline.py                # stages 0-3 on the dev model, logged"
   echo "  python 00_smoke_test.py --model deepseek   # the real target (see run_deepseek.md)"
 else
   echo "  python 00_smoke_test.py         # dev model, CPU (slow; set dtype='float32' in config.py)"

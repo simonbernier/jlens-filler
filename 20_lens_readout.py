@@ -48,7 +48,7 @@ LENS = "logit"         # "logit" (stage 2) | "jlens" (stage 3) | "both" (one pas
 FILLER = "dots"        # see paper_tasks.FILLER_KINDS
 K = 10                 # filler length
 N = 300                # examples
-POS_CHUNK = 16         # positions per lens.apply call (memory knob)
+POS_CHUNK = 32         # positions per lens.apply call (memory knob; one forward pass per chunk)
 
 # Where the examples come from. "fig2" REPLAYS stage 1's own test set and its
 # exact rendered prompts from data/fig2_2fact.jsonl — same pairs, same idx, same
@@ -60,7 +60,6 @@ POS_CHUNK = 16         # positions per lens.apply call (memory knob)
 SOURCE = "fig2"        # "fig2" | "synthetic"
 FIG2_PATH = "data/fig2_2fact.jsonl"
 SEED = 0               # synthetic source only
-POST_TAIL_MAX = 8      # post-filler token positions to read (incl. "Answer:")
 MAX_SEQ_LEN = None     # None = size the context window to each prompt; never truncate
 REGEN_ANSWERS = False  # re-generate greedy answers even if answers_<tag>.csv exists
 OUTDIR = "results"
@@ -145,25 +144,24 @@ if numeric.mode == "prefix":
 # %% [markdown]
 # ## 2. Prompt rendering + position bookkeeping
 #
-# `locate_positions` returns NEGATIVE token indices: the filler region first, in
-# order, then up to `POST_TAIL_MAX` trailing tokens (the `"Answer:"` tail and the
-# generation prompt). Negative indexing survives a BOS that jlens's own
-# re-tokenization may prepend.
+# Prompts are rendered by `pt.render_chat`, which turns the model's reasoning
+# mode OFF (both Qwen3.5 and DeepSeek V4 Flash open a `<think>` block by
+# default — see its docstring). `locate_positions` returns NEGATIVE token
+# indices: the filler region first, in order, then every trailing token — the
+# `"Answer:"` tail and the generation prompt, whose last position (-1) is the
+# one the answer is actually predicted from. Negative indexing survives a BOS
+# being added or not by whoever re-tokenizes the prompt.
 
 # %%
-def render_chat(tok, msgs: list[dict]) -> str:
-    return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-
-
 def locate_positions(tok, text: str, ex: pt.Example, kind: str, k: int
                      ) -> tuple[list[int], int]:
     """Return (negative token positions, n_filler).
 
     The first n_filler entries are filler positions, in order; the rest are the
-    post-filler tail. k=0 has no filler region and therefore nothing to read
-    out: it returns no positions, and the run degenerates to greedy answers
-    only — which is exactly what the k=0 baseline is for (22_agreement_check.py
-    needs it to compute uplift).
+    post-filler tail, through position -1. k=0 has no filler region and
+    therefore nothing to read out: it returns no positions, and the run
+    degenerates to greedy answers only — which is exactly what the k=0 baseline
+    is for (22_agreement_check.py needs it to compute uplift).
     """
     if k == 0:
         return [], 0
@@ -172,8 +170,7 @@ def locate_positions(tok, text: str, ex: pt.Example, kind: str, k: int
     offsets = enc["offset_mapping"]
     c0, c1 = pt.final_filler_char_span(text, filler, ex.question)
     fill_neg = pt.span_to_negative_positions(offsets, c0, c1)
-    # post tail: negative indices after the last filler token, up to -1
-    post_neg = list(range(fill_neg[-1] + 1, 0))[:POST_TAIL_MAX]
+    post_neg = list(range(fill_neg[-1] + 1, 0))   # after the filler, up to -1
     return fill_neg + post_neg, len(fill_neg)
 
 
@@ -185,10 +182,17 @@ def locate_positions(tok, text: str, ex: pt.Example, kind: str, k: int
 # the tokenizer's numeric mode — `top_num` is only meaningful in "exact" mode, so
 # a downstream `top_num == a1` comparison would silently report zero decodes on a
 # digit-splitting tokenizer.
+#
+# `ctrl_*` is the same test against a *different* example's A1/A2/sum (the
+# previous one in the dataset): the chance level of the decode criterion. It
+# matters because "decoded" is an argmax over a few hundred numeric tokens
+# (exact mode) or ten digits (prefix mode), so any-layer-any-position
+# aggregates saturate on noise alone; 21/30 report the two side by side.
 
 # %%
 def readout_example(
     ex: pt.Example,
+    control: pt.Example,
     text: str,
     positions: Sequence[int],
     n_filler: int,
@@ -199,7 +203,8 @@ def readout_example(
     pos_chunk: int = 16,
 ) -> list[dict]:
     rows = []
-    quantities = (("A1", ex.a1), ("A2", ex.a2), ("sum", ex.target))
+    quantities = (("A1", ex.a1, control.a1), ("A2", ex.a2, control.a2),
+                  ("sum", ex.target, control.target))
     for lens_name, use_j in lenses:
         for start in range(0, len(positions), pos_chunk):
             chunk = list(positions[start:start + pos_chunk])
@@ -216,9 +221,10 @@ def readout_example(
                         top_tok=numeric.top_token(row_logits),
                         top_num=numeric.top_value(row_logits),
                     )
-                    for qname, qval in quantities:
+                    for qname, qval, cval in quantities:
                         rec[f"match_{qname}"] = numeric.decodes(row_logits, qval)
                         rec[f"rank_{qname}"] = numeric.rank(row_logits, qval)
+                        rec[f"ctrl_{qname}"] = numeric.decodes(row_logits, cval)
                     rows.append(rec)
     return rows
 
@@ -231,11 +237,14 @@ def apply_fn(text, positions, use_j):
 
 @torch.no_grad()
 def answer(text: str) -> str:
+    """Greedy reply, special tokens kept so a stray <think> stays visible to
+    pt.parse_answer (skip_special_tokens=True would strip it and score the
+    reasoning trace's first integer as the prediction)."""
     enc = tok(text, add_special_tokens=False, return_tensors="pt")
     enc = {k_: v.to(hf.device) for k_, v in enc.items()}
     gen = hf.generate(**enc, max_new_tokens=6, do_sample=False,
                       pad_token_id=tok.eos_token_id)
-    return tok.decode(gen[0, enc["input_ids"].shape[1]:], skip_special_tokens=True)
+    return tok.decode(gen[0, enc["input_ids"].shape[1]:], skip_special_tokens=False)
 
 
 # %% [markdown]
@@ -279,14 +288,31 @@ if os.path.exists(ANS_CSV) and not REGEN_ANSWERS:
                       for _, r in pd.read_csv(ANS_CSV).iterrows()}
     print(f"[answers] reusing {len(cached_answers)} greedy answers from {ANS_CSV}")
 
-# One prompt's worth of bookkeeping up front: how long these prompts actually
-# are, so a context-window surprise shows up here and not as a bad heatmap.
+# One prompt's worth of bookkeeping up front, so a surprise shows up here and
+# not as a bad heatmap 200 examples later: how long the prompts are, which
+# tokens the post-filler tail reads, and what the model actually replies —
+# a reasoning trace or a cached answer from a broken run would show up right
+# here as an unparsed reply or a cache/model disagreement.
 _ex0, _msgs0 = dataset[0]
-_probe = render_chat(tok, _msgs0)
+_probe = pt.render_chat(tok, _msgs0)
+_probe_ids = tok(_probe, add_special_tokens=False).input_ids
 _probe_pos, _probe_nf = locate_positions(tok, _probe, _ex0, FILLER, K)
-print(f"[prompt] {len(tok(_probe, add_special_tokens=False).input_ids)} tokens, "
-      f"{len(_probe_pos)} readout positions ({_probe_nf} filler) — "
+print(f"[prompt] {len(_probe_ids)} tokens, {len(_probe_pos)} readout positions "
+      f"({_probe_nf} filler) — "
       f"max_seq_len={MAX_SEQ_LEN if MAX_SEQ_LEN else 'fitted per prompt'}")
+print(f"[prompt] post-filler tail read: "
+      f"{[tok.decode([_probe_ids[p]]) for p in _probe_pos[_probe_nf:]]}")
+_reply = answer(_probe)
+_pred = pt.parse_answer(_reply)
+print(f"[probe] {_ex0.elem_a}+{_ex0.elem_b}={_ex0.target}: reply {_reply!r} "
+      f"-> pred {_pred}")
+if _pred is None:
+    raise RuntimeError("the model's reply has no answer in it (a reasoning trace, "
+                       "most likely) — fix the prompt before spending GPU hours")
+if _ex0.idx in cached_answers and cached_answers[_ex0.idx]["pred"] != _pred:
+    raise RuntimeError(f"{ANS_CSV} is stale: it says {cached_answers[_ex0.idx]['pred']} "
+                       f"for idx {_ex0.idx}, the model now says {_pred}. "
+                       f"Set REGEN_ANSWERS = True (--regen-answers).")
 
 # %% [markdown]
 # ## 5. Readout loop
@@ -302,7 +328,7 @@ n_filler = n_positions = 0
 max_prompt_tokens = 0
 
 for i, (ex, msgs) in enumerate(tqdm(dataset, desc=f"readout ({LENS})", unit="ex")):
-    text = render_chat(tok, msgs)
+    text = pt.render_chat(tok, msgs)
     positions, n_filler = locate_positions(tok, text, ex, FILLER, K)
     n_positions = len(positions)
     max_prompt_tokens = max(max_prompt_tokens,
@@ -322,7 +348,8 @@ for i, (ex, msgs) in enumerate(tqdm(dataset, desc=f"readout ({LENS})", unit="ex"
                             correct=correct))
 
     if positions:                     # k=0 has no filler region: answers only
-        all_rows += readout_example(ex, text, positions, n_filler, correct,
+        control = dataset[i - 1][0]   # another example's quantities = chance level
+        all_rows += readout_example(ex, control, text, positions, n_filler, correct,
                                     apply_fn, numeric, LENSES, pos_chunk=POS_CHUNK)
 
     if (i + 1) % 10 == 0 or i == 0:
@@ -330,7 +357,8 @@ for i, (ex, msgs) in enumerate(tqdm(dataset, desc=f"readout ({LENS})", unit="ex"
             pd.DataFrame(all_rows).to_csv(OUT_CSV, index=False)
         pd.DataFrame(answers).to_csv(ANS_CSV, index=False)
 
-print(f"running accuracy: {np.mean([a['correct'] for a in answers]):.2%}")
+print(f"running accuracy: {np.mean([a['correct'] for a in answers]):.2%}  "
+      f"(unparsed replies: {sum(pd.isna(a['pred']) for a in answers)})")
 
 # %% [markdown]
 # ## 6. Write + sanity peek
@@ -356,11 +384,13 @@ else:
           f"{n_filler} filler; readout mode={numeric.mode})")
 
     last = readout[(readout.pos == n_filler - 1) & readout.correct]
-    print("\ndecode fraction at the last filler position (correct examples):")
+    print("\ndecode fraction at the last filler position (correct examples), "
+          "with the shuffled-quantity control (ctrl_*) as chance level:")
     if last.empty:
         print("  (no correct examples in this run — nothing to peek at)")
     else:
-        print(last.groupby(["lens", "layer"])[["match_A1", "match_A2", "match_sum"]]
+        print(last.groupby(["lens", "layer"])[["match_A1", "ctrl_A1", "match_A2",
+                                               "ctrl_A2", "match_sum", "ctrl_sum"]]
                   .mean().round(3).to_string())
     print(f"\nnext: 21_analyze_readout.py (TAG = {TAG!r})")
     if SOURCE == "fig2":

@@ -19,8 +19,14 @@ Confirmed jlens API used here:
                lens_logits is {layer: Tensor[num_positions, vocab]}
     use_jacobian=False gives the LOGIT-LENS baseline (skips the transport step).
 
-Three guards live here, each protecting against a failure that is silent or
+Four guards live here, each protecting against a failure that is silent or
 expensive rather than obvious:
+
+  * the `encode` override in `load_model` — jlens tokenizes prompts with
+    add_special_tokens=True, which on DeepSeek adds a second BOS in front of
+    the one the chat template already rendered; the lens would then read a
+    different sequence from the one the answer is generated from. `apply_lens`
+    checks that the lens saw exactly the prompt's tokens.
 
   * `fit_seq_len` — jlens truncates at 512 tokens from the RIGHT by default, and
     our positions are negative indices computed on the untruncated text, so a
@@ -184,6 +190,19 @@ def load_model(spec: ModelSpec):
         spec.hf_id, trust_remote_code=spec.trust_remote_code
     )
     model = jlens.from_hf(hf, tok)
+
+    # jlens's own encode() tokenizes with add_special_tokens=True (and forces
+    # add_bos_token on). Our prompts are rendered chat templates that already
+    # carry whatever BOS the model wants — DeepSeek's template starts with one,
+    # Qwen's has none — so that would prepend a SECOND BOS on DeepSeek, and the
+    # lens would read a different sequence from the one `answer()` generates
+    # from. Tokenize the rendered text verbatim instead, exactly as the greedy
+    # generation in 20 does; apply_lens checks the token count agrees.
+    def encode(text: str, *, max_length: int = 512) -> torch.Tensor:
+        ids = tok(text, return_tensors="pt", truncation=True, max_length=max_length,
+                  add_special_tokens=False).input_ids
+        return ids.to(model.input_device)
+    model.encode = encode
     return model, hf, tok
 
 
@@ -228,8 +247,8 @@ def check_provenance(spec: ModelSpec, kind: str = "j") -> dict:
 # --------------------------------------------------------------------------- #
 # Applying the lens + decoding
 # --------------------------------------------------------------------------- #
-def fit_seq_len(model, prompt: str, max_seq_len: Optional[int] = None) -> int:
-    """Resolve the truncation length for one prompt. Never truncates silently.
+def fit_seq_len(n_tok: int, max_seq_len: Optional[int] = None) -> int:
+    """Resolve the truncation length for an n_tok-token prompt. Never truncates silently.
 
     `jlens.HFLensModel.encode` tokenizes with `truncation=True,
     max_length=max_seq_len` (default **512**), and HF truncates from the RIGHT.
@@ -242,7 +261,6 @@ def fit_seq_len(model, prompt: str, max_seq_len: Optional[int] = None) -> int:
     the prompt, so nothing is ever cut. An explicit value is honoured, but raises
     rather than truncate.
     """
-    n_tok = len(model.tokenizer(prompt, add_special_tokens=False).input_ids)
     needed = n_tok + BOS_HEADROOM
     if max_seq_len is None:
         return needed
@@ -264,12 +282,20 @@ def apply_lens(lens, model, prompt: str, positions: Sequence[int],
     use_jacobian=False -> logit-lens baseline (same code path, transport skipped)
     max_seq_len=None   -> size the context window to this prompt (see fit_seq_len)
     """
-    lens_logits, _model_logits, _ = lens.apply(
+    n_tok = len(model.tokenizer(prompt, add_special_tokens=False).input_ids)
+    lens_logits, _model_logits, input_ids = lens.apply(
         model, prompt,
         positions=list(positions),
         use_jacobian=use_jacobian,
-        max_seq_len=fit_seq_len(model, prompt, max_seq_len),
+        max_seq_len=fit_seq_len(n_tok, max_seq_len),
     )
+    # The lens must have run on exactly the tokens the positions were computed
+    # on (see the encode override in load_model): a stray BOS or a truncation
+    # would shift every negative position by one and never raise on its own.
+    if input_ids.shape[-1] != n_tok:
+        raise RuntimeError(
+            f"the lens ran on {input_ids.shape[-1]} tokens but the prompt is "
+            f"{n_tok}: the readout positions no longer line up with the text")
     return lens_logits
 
 

@@ -36,6 +36,7 @@ from lens_analysis import (
     algorithm_summary,
     find_readouts,
     grid,
+    has_control,
     load,
     mode_note,
     n_filler_of,
@@ -95,41 +96,56 @@ print(f"{df.idx.nunique()} examples | {df.layer.nunique()} layers | "
 # %% [markdown]
 # ## 2. Figure 3 — decode fraction over layer × position
 #
-# One figure per lens in the readout. Rows are correct / wrong examples, columns
-# are A1 / A2 / sum; the dashed line marks the end of the filler region. The
-# paper's signature for wrong examples is A1 and A2 present but sum absent —
-# retrieval without composition.
+# One figure per lens in the readout. Rows are correct / wrong examples (plus
+# the shuffled-quantity control on the correct examples: the chance level of
+# the decode criterion, cell by cell), columns are A1 / A2 / sum; the dashed
+# line marks the end of the filler region. The paper's signature for wrong
+# examples is A1 and A2 present but sum absent — retrieval without composition.
 
 # %%
 def fig3(df, lens: str, n_filler: int, tag: str, outdir: str):
     sub = df[df.lens == lens]
     n_cor = sub[sub.correct].idx.nunique()
     n_wrg = sub[~sub.correct].idx.nunique()
-    fig, axes = plt.subplots(2, 3, figsize=(12, 6.5), sharex=True, sharey=True)
+    # rows: (label, example mask, column prefix, n). The third row is the
+    # shuffled-quantity control on the same examples as the first — the chance
+    # level of every cell above it, in the same colour scale.
+    rows = [("correct", sub.correct, "match", n_cor),
+            ("wrong", ~sub.correct, "match", n_wrg)]
+    if has_control(sub):
+        if n_cor:
+            rows.append(("control, correct", sub.correct, "ctrl", n_cor))
+        else:                     # nothing correct (dev model): control over all
+            rows.append(("control, all", sub.correct | True, "ctrl",
+                         sub.idx.nunique()))
+    fig, axes = plt.subplots(len(rows), 3, figsize=(12, 3.25 * len(rows)),
+                             sharex=True, sharey=True)
     im = None
-    for r, (label, mask, n_ex) in enumerate(
-            [("correct", sub.correct, n_cor), ("wrong", ~sub.correct, n_wrg)]):
+    for r, (label, mask, col, n_ex) in enumerate(rows):
         for c, q in enumerate(QUANTITIES):
             ax = axes[r, c]
             if n_ex == 0:
                 ax.set_axis_off()
                 ax.set_title(f"{q} — no {label} examples")
                 continue
-            layers, poss, g = grid(sub[mask], f"match_{q}")
+            layers, poss, g = grid(sub[mask], f"{col}_{q}")
             im = ax.imshow(g, aspect="auto", origin="lower", vmin=0, vmax=1,
                            cmap="magma",
                            extent=[poss[0] - .5, poss[-1] + .5,
                                    layers[0] - .5, layers[-1] + .5])
             ax.axvline(n_filler - 0.5, color="w", ls="--", lw=1)
             ax.set_title(f"{q}  ({label}, n={n_ex})", fontsize=10)
-            if r == 1:
+            if r == len(rows) - 1:
                 ax.set_xlabel("position (filler → | answer)")
             if c == 0:
                 ax.set_ylabel("source layer")
     if im is not None:
         fig.colorbar(im, ax=axes, fraction=0.03, pad=0.02,
                      label="fraction of examples decoded (top numeric token)")
-    fig.suptitle(f"{lens} — 2-fact addition, {tag}{mode_note(df)}")
+    title = f"{lens} — 2-fact addition, {tag}{mode_note(df)}"
+    if has_control(sub):
+        title += "\ncontrol = same criterion against another example's A1/A2/sum (chance)"
+    fig.suptitle(title)
     path = os.path.join(outdir, f"fig3_{tag}_{lens}.png")
     fig.savefig(path, dpi=150, bbox_inches="tight")
     print(f"wrote {path}")

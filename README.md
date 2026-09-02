@@ -100,10 +100,38 @@ in the env root — no `bin/`).
 python 00_smoke_test.py --api               # API path: key, endpoints, provider pin, parsing
 python 00_smoke_test.py                     # GPU path on the dev model (Qwen3.5-4B)
 python 00_smoke_test.py --model deepseek    # GPU path on the real target (GPU box)
+python 00_smoke_test.py --model deepseek --tokenizer-only   # no weights: laptop preflight
 ```
 The GPU path also validates prompt construction + filler-span location on the
-real tokenizer, then asserts the J-lens and logit-lens actually differ
-somewhere (a no-op transport step would silently fake a null result).
+real tokenizer, generates one greedy answer on the task prompt and checks it
+parses (the test that catches a chat template left in reasoning mode — see
+below), then asserts the J-lens and logit-lens actually differ somewhere (a
+no-op transport step would silently fake a null result). `--tokenizer-only`
+runs the prompt checks alone on a few MB of tokenizer download: the template's
+reasoning switch, the exact tokens the post-filler tail reads, the numeric
+decode mode, and whether the tokenizer would add a second BOS.
+
+**Reasoning must be off.** Both Qwen3.5 and DeepSeek V4 Flash are hybrid
+reasoning models whose chat template opens a `<think>` block in the generation
+prompt by default. Left on, every greedy "answer" is the start of a reasoning
+trace — the first Qwen3.5-4B run of 20 scored 0% with the reply
+`"Thinking Process: 1."` on all 300 examples, and `skip_special_tokens=True`
+had stripped the `<think>` tag so it parsed as a confident wrong answer. Every
+prompt now goes through `paper_tasks.render_chat`, which passes the off switch
+under both names (`enable_thinking` for Qwen, `thinking` for DeepSeek) and
+raises if the template still leaves a `<think>` open; 20 keeps special tokens
+in the decoded reply so `parse_answer` can see a stray `<think>`, and refuses
+to start if the first reply does not parse.
+
+`run_qwen_pipeline.bat` / `.py` runs stages 0–3 on the dev model end to end
+(smoke test → 20 with both lenses → 21 → 30 → DeepSeek tokenizer preflight),
+logging to `results/pipeline_log.txt`; `run_deepseek_preflight.bat` is the
+tokenizer-only preflight alone. Double-click either on Windows.
+`report_dev_run.md` is the write-up of the 2026-09-01 dev-model run: the bugs
+above, what Qwen3.5-4B does with the task (1% accuracy — it cannot do 2-fact
+addition without reasoning, so it is a pipe-cleaner only), and what the
+DeepSeek path needed (V4 ships no Jinja chat template; `render_chat` uses the
+repo's `encoding_dsv4.py` instead).
 
 ## Stage 1 — Figure 2 (accuracy vs k, API only)
 Paper-faithful Fig. 2 using Ryan Greenblatt's compose_facts fact files (paper
@@ -170,10 +198,22 @@ model's tokenizer — exact match where digits are grouped into single tokens
 (DeepSeek), first-token match where they are split (Qwen, Llama 3) — prints
 which mode it is in, and records it in the CSV and every figure title. Headline
 numbers should come from an exact-mode run; `00_smoke_test.py` tells you which
-mode a model gives you before you spend GPU hours. 21 turns
-that into Figure-3-style heatmaps + the "what algorithm?" summary. The logit
-lens is run through `jlens` with `use_jacobian=False`, so stage 3 is an exact
-apples-to-apples upgrade. **20 replays stage 1's own examples.** `SOURCE = "fig2"` (the default) reads
+mode a model gives you before you spend GPU hours. Every row also carries a
+**shuffled-quantity control** (`ctrl_*`): the same decode test against another
+example's A1/A2/sum. "Decoded" is an argmax over a few hundred numeric tokens
+(exact) or ten digits (prefix), so any-layer-any-position aggregates saturate
+on noise alone, and in prefix mode the model's standing preference for the
+digit `1` matches most 2-fact sums (100–199) at every cell; 21 draws the
+control as a third row of the heatmaps, 30 dots it under the per-layer curves,
+and the printed summary puts it next to every fraction. A number that does not
+beat its control is chance, whichever lens produced it. The readout covers the
+filler region and the whole post-filler tail through position −1 (the token
+the answer is predicted from). 21 turns that into Figure-3-style heatmaps +
+the "what algorithm?" summary. The logit lens is run through `jlens` with
+`use_jacobian=False`, so stage 3 is an exact apples-to-apples upgrade — and
+`common.load_model` makes the lens tokenize the rendered prompt verbatim, the
+way generation does, since jlens's own `encode` would add a second BOS on
+DeepSeek; `apply_lens` checks the token counts agree. **20 replays stage 1's own examples.** `SOURCE = "fig2"` (the default) reads
 `data/fig2_2fact.jsonl` — stage 1's test set *and its exact rendered prompts* —
 so `idx` joins straight onto `results/fig2_raw.jsonl`. This matters: seeding is
 not enough, because `pt.build_dataset` holds out a different 10 elements for

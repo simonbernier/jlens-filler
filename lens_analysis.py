@@ -41,6 +41,14 @@ def find_readouts(tag: str = "", outdir: str = "results") -> list[str]:
     if not hits:
         raise SystemExit(f"no readout CSVs tagged {tag!r} in {outdir}/ "
                          f"(tags present: {sorted({tag_of(p) for p in paths})})")
+    # A `both` file already covers both lenses. Merging it with older
+    # single-lens files of the same condition would let their rows override
+    # its own (load() keeps the last duplicate), so prefer it alone.
+    both = [p for p in hits if p.endswith("_both.csv")]
+    if both and len(hits) > 1:
+        print(f"[find_readouts] using {both[0]} and ignoring older single-lens "
+              f"files for the same condition: {[p for p in hits if p not in both]}")
+        hits = both
     return hits
 
 
@@ -104,18 +112,33 @@ def grid(df: pd.DataFrame, col: str):
 # --------------------------------------------------------------------------- #
 # "What algorithm?" summary
 # --------------------------------------------------------------------------- #
+def has_control(df: pd.DataFrame) -> bool:
+    """Readouts written since the shuffled-quantity control carry ctrl_* columns."""
+    return all(f"ctrl_{q}" in df for q in QUANTITIES)
+
+
 def algorithm_summary(df: pd.DataFrame, n_filler: int) -> dict:
     out = {}
     fill = df[(df.pos < n_filler) & df.correct]
     post = df[(df.pos >= n_filler) & df.correct]
+    ctrl = has_control(df)
     for lens in sorted(df.lens.unique()):
         s = {}
         fl = fill[fill.lens == lens]
         po = post[post.lens == lens]
-        # 1. Does each quantity ever decode in the filler region?
+        # 1. Does each quantity ever decode in the filler region? "Ever" is an
+        #    any() over layers x positions, so it saturates on noise — the
+        #    shuffled-quantity control (another example's A1/A2/sum, same
+        #    criterion) is what it must beat.
         for q in QUANTITIES:
             per_ex = fl.groupby("idx")[f"match_{q}"].any()
             s[f"{q}_decoded_in_filler_frac"] = round(float(per_ex.mean()), 3)
+            if ctrl:
+                per_ex_c = fl.groupby("idx")[f"ctrl_{q}"].any()
+                s[f"{q}_decoded_in_filler_frac_control"] = round(float(per_ex_c.mean()), 3)
+                # cell-level: mean decode fraction over (layer, pos), vs control
+                s[f"{q}_cell_frac"] = round(float(fl[f"match_{q}"].mean()), 3)
+                s[f"{q}_cell_frac_control"] = round(float(fl[f"ctrl_{q}"].mean()), 3)
             # earliest layer at which it first decodes (median over examples)
             firsts = (fl[fl[f"match_{q}"]].groupby("idx")["layer"].min())
             s[f"{q}_first_layer_median"] = (
@@ -152,9 +175,13 @@ def print_report(s: dict):
         d = s[lens]
         print(f"\n--- {lens} (correct examples) ---")
         for q in QUANTITIES:
-            print(f"  {q:>4}: decoded-in-filler {d[f'{q}_decoded_in_filler_frac']:>6} | "
-                  f"first layer (median) {d[f'{q}_first_layer_median']} | "
-                  f"mean position {d[f'{q}_mean_position']}")
+            ctrl = (f" (control {d[f'{q}_decoded_in_filler_frac_control']})"
+                    if f"{q}_decoded_in_filler_frac_control" in d else "")
+            cell = (f" | per-cell {d[f'{q}_cell_frac']} vs control "
+                    f"{d[f'{q}_cell_frac_control']}" if f"{q}_cell_frac" in d else "")
+            print(f"  {q:>4}: decoded-in-filler {d[f'{q}_decoded_in_filler_frac']:>6}"
+                  f"{ctrl} | first layer (median) {d[f'{q}_first_layer_median']} | "
+                  f"mean position {d[f'{q}_mean_position']}{cell}")
         print(f"  sum decoded in post/answer tail: {d['sum_decoded_in_post_frac']}")
         print(f"  A1 & A2 co-decoded at one layer (parallel retrieval): "
               f"{d['parallel_A1_A2_same_layer_frac']}")
@@ -164,5 +191,6 @@ def print_report(s: dict):
     print("\nReading guide: retrieval-then-composition = A1/A2 first-layer << "
           "sum first-layer; position specialization = mean_position(A1) < "
           "mean_position(A2); J-lens 'sees more' = higher decoded-in-filler "
-          "fractions and/or smaller first-layer at matched positions.")
+          "fractions and/or smaller first-layer at matched positions. A fraction "
+          "that does not beat its shuffled control is noise, whatever the lens.")
     print("=======================================================\n")

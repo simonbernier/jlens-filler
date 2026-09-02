@@ -7,6 +7,9 @@ Two independent checks, pick what the machine is for:
                                               # provider pin, reasoning-off, parsing
   python 00_smoke_test.py                     # GPU path (stages 2-4), dev model
   python 00_smoke_test.py --model deepseek    # GPU path on the real target
+  python 00_smoke_test.py --model deepseek --tokenizer-only
+                                              # template/tail/decode-mode checks on
+                                              # the real tokenizer, no weights (laptop)
 
 The GPU path proves the whole lens pipeline end to end:
   1. weights load, lens downloads + loads, provenance matches the model;
@@ -47,7 +50,9 @@ def prompt_smoke(tok):
     check("message layout: system + 5 few-shot pairs + final user",
           len(msgs) == 12 and msgs[0]["role"] == "system"
           and msgs[-1]["role"] == "user")
-    text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    text = pt.render_chat(tok, msgs)     # raises if the template leaves <think> open
+    check("generation prompt has no open <think> (reasoning off)",
+          text.count("<think>") <= text.count("</think>"))
     filler = pt.make_filler("dots", k)
     c0, c1 = pt.final_filler_char_span(text, filler, ex.question)
     check("char span is exactly the filler", text[c0:c1] == filler)
@@ -56,6 +61,16 @@ def prompt_smoke(tok):
     check("filler tokens located, negative + contiguous",
           len(neg) >= k and all(n < 0 for n in neg)
           and neg == list(range(neg[0], neg[0] + len(neg))))
+    ids = enc["input_ids"]
+    print(f"  prompt: {len(ids)} tokens; post-filler tail read by 20: "
+          f"{[tok.decode([ids[p]]) for p in range(neg[-1] + 1, 0)]}")
+    # The rendered template already carries the model's BOS (if it has one);
+    # tokenizing with add_special_tokens=True would add another. common.load_model
+    # makes the lens tokenize verbatim, so the count must not change.
+    n_special = len(tok(text, add_special_tokens=True).input_ids)
+    if n_special != len(ids):
+        print(f"  note: add_special_tokens=True would add {n_special - len(ids)} "
+              f"token(s) (a second BOS) — the lens tokenizes verbatim instead")
     # Numeric readout: report which decode criterion this tokenizer supports.
     # This is NOT pass/fail — a digit-splitting tokenizer (Qwen, Llama 3) can
     # only do first-token matching, which is fine for pipe-cleaning and wrong
@@ -79,7 +94,22 @@ def lens_smoke(args):
     lens = load_lens(spec, kind="j")
 
     print("\n== prompt construction on the real tokenizer ==")
-    prompt_smoke(tok)
+    chat_prompt = prompt_smoke(tok)
+
+    # One greedy reply on the real task prompt. This is the check that catches
+    # a reasoning-mode template: a hybrid reasoning model with thinking left on
+    # answers "Thinking Process: 1." to every question, which parses as a
+    # confident wrong answer unless the <think> tag is kept in the decode.
+    print("\n== greedy answer on the task prompt (reasoning must be OFF) ==")
+    import torch
+    enc = tok(chat_prompt, add_special_tokens=False, return_tensors="pt").to(hf.device)
+    with torch.no_grad():
+        gen = hf.generate(**enc, max_new_tokens=6, do_sample=False,
+                          pad_token_id=tok.eos_token_id)
+    reply = tok.decode(gen[0, enc.input_ids.shape[1]:], skip_special_tokens=False)
+    print(f"  reply: {reply!r} -> parsed {pt.parse_answer(reply)}")
+    check("reply parses to an integer (no reasoning trace)",
+          pt.parse_answer(reply) is not None)
 
     print(f"\nlens: {len(lens.source_layers)} source layers "
           f"(d_model={lens.d_model}, n_prompts={lens.n_prompts})")
@@ -110,10 +140,31 @@ def lens_smoke(args):
           f"{disagreements}/{len(layers)} layers (as expected).")
 
 
+def tokenizer_smoke(model_key: str):
+    """Prompt checks on the real tokenizer only — no weights, no GPU.
+
+    The free preflight for DeepSeek V4 Flash: the tokenizer download is a few
+    MB, and it settles the three things that bit the dev model before renting
+    anything — does the template honour reasoning-off, which tokens does the
+    post-filler tail read, and which numeric decode mode do we get.
+    """
+    import transformers
+    import config
+
+    spec = config.get(model_key)
+    tok = transformers.AutoTokenizer.from_pretrained(
+        spec.hf_id, trust_remote_code=spec.trust_remote_code)
+    print(f"tokenizer: {spec.hf_id}\n\n== prompt construction on the real tokenizer ==")
+    prompt_smoke(tok)
+    print("\nPASS: tokenizer path works (weights not loaded).")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", action="store_true",
                     help="check the API path (stage 1) instead of the GPU/lens path")
+    ap.add_argument("--tokenizer-only", action="store_true",
+                    help="prompt/template checks on the tokenizer alone (no weights)")
     ap.add_argument("--model", default="dev", help="registry key (config.py)")
     ap.add_argument("--prompt", default=(
         "Fact: The currency used in the country shaped like a boot is"))
@@ -124,6 +175,8 @@ def main():
 
     if args.api:
         api_smoke()
+    elif args.tokenizer_only:
+        tokenizer_smoke(args.model)
     else:
         lens_smoke(args)
 
