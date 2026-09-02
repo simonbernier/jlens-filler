@@ -149,9 +149,42 @@ def describe_checkpoint(spec: ModelSpec) -> dict:
     return qc
 
 
+def patch_fp8_tp_plan_bug() -> None:
+    """Work around a transformers 5.16.x regression that breaks every FP8 MoE load.
+
+    `FineGrainedFP8HfQuantizer.update_tp_plan` fetches per-kernel overrides with
+    `_impl_tp_layer_overrides.get(impl)` — `None` for any experts implementation
+    other than "deepgemm_megamoe" — and then calls `.get` on it, so loading
+    DeepSeek V4 Flash dies with "'NoneType' object has no attribute 'get'"
+    before a single shard is read. Fixed on transformers main (`.get(impl, {})`)
+    but not yet released. With no overrides the fixed code leaves the plan as
+    it was, so falling back to the untouched config is the same outcome; the
+    plan only matters for tensor-parallel sharding, and we place layers with
+    device_map="auto" instead. Harmless on versions without the bug.
+    """
+    try:
+        from transformers.quantizers.quantizer_finegrained_fp8 import (
+            FineGrainedFP8HfQuantizer)
+    except ImportError:
+        return
+    original = FineGrainedFP8HfQuantizer.update_tp_plan
+    if getattr(original, "_patched", False):
+        return
+
+    def update_tp_plan(self, config):
+        try:
+            return original(self, config)
+        except AttributeError:        # the 5.16.x bug: no overrides for this impl
+            return config
+
+    update_tp_plan._patched = True
+    FineGrainedFP8HfQuantizer.update_tp_plan = update_tp_plan
+
+
 def load_model(spec: ModelSpec):
     """Load HF weights per `spec` and wrap them for the lens. Returns (model, hf, tok)."""
     describe_checkpoint(spec)
+    patch_fp8_tp_plan_bug()
     kw = dict(trust_remote_code=spec.trust_remote_code)
 
     if spec.load_in_4bit:

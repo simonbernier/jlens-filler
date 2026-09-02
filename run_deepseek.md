@@ -103,9 +103,21 @@ three things that bit the dev model before any weights were involved:
 **4×H100 80GB (320 GB)** is the default: 2× the weights, ~$11/hr on Vast at the time
 of writing. Go to 8×H100 only if the preflight says the experts upcast.
 
-- **Skip spot**, despite the price. A preemption costs you the 160 GB re-download,
-  which is most of the bill on a run this short.
-- Prefer on-demand / Secure Cloud for a stable multi-hour session.
+**2×H200 141GB (282 GB)** is the cheapest box that fits when H100s are scarce: same
+Hopper chip as the H100 (native FP8, FP4 experts upconverted in-kernel), and 282 GB
+leaves ~120 GB for activations over the 160 GB checkpoint. Only worth going to 4×H200
+if the preflight shows an upcast, and even 564 GB is tight in that case (see the table).
+**A100s are not an option** whatever the price — Ampere has no FP8 units, transformers'
+FP8 loader refuses compute capability < 8.9, and a bf16 fallback is ~568 GB.
+
+- **Rent on-demand, not "interruptible" / "spot".** Vast (and most clouds) offer
+  the same machine two ways: *on-demand*, where you pay the listed rate and keep
+  the machine until you stop it, or *interruptible* (elsewhere called *spot* or
+  *preemptible*), where you bid a lower price — often half — but the host can
+  take the machine back at any moment, without warning. The discount is not
+  worth it here: the weights live on the pod's local disk, so an interruption
+  throws away the 160 GB download and the next instance starts it over, which
+  costs more than the discount saved on a run this short.
 - The readout itself is short — n=300 at k=10 is roughly 30–60 minutes of compute —
   so download time and run time are comparable and the whole session is 2–3 hours.
   Optimising the hourly rate matters less than not having to do the session twice.
@@ -161,7 +173,13 @@ fail fast on. If it OOMs, kill the instance inside the first hour and re-rent 8�
 
 ## 5. Gotchas
 
-- **`trust_remote_code=True`** is already set — DeepSeek ships custom modeling code.
+- **`trust_remote_code=True`** is already set — DeepSeek ships custom modeling code
+  (transformers 5.16 also has a native DeepSeek-V4 class and uses that).
+- **transformers 5.16.x crashes at load** with `'NoneType' object has no attribute
+  'get'` from `quantizer_finegrained_fp8.update_tp_plan` — a regression in the FP8
+  MoE loader, fixed on `main` but not released as of 2026-09-02.
+  `common.patch_fp8_tp_plan_bug` (called by `load_model`) works around it; if a
+  later transformers release fixes it the shim does nothing.
 - **Layer coverage:** the scripts iterate `lens.source_layers`, so they adapt to
   whatever the lens covers without being told.
 - **Verify the snapshot:** if HF resolves `deepseek-ai/DeepSeek-V4-Flash` to a revision
