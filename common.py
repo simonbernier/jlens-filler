@@ -181,6 +181,53 @@ def patch_fp8_tp_plan_bug() -> None:
     FineGrainedFP8HfQuantizer.update_tp_plan = update_tp_plan
 
 
+def collapse_hyper_connection_streams(hf) -> None:
+    """Make jlens read a single residual vector per position on DeepSeek V4.
+
+    V4 blocks use manifold-constrained hyper-connections: the residual is a
+    stack of `hc_mult` (= 4) parallel streams, shape [B, S, 4, D], kept through
+    every layer. Each block collapses the streams to one D-vector to feed
+    attention/MLP and writes its output back across them; at the very end
+    `model.hc_head` collapses them once more for the final norm + lm_head.
+    jlens records block outputs and assumes [B, S, D], so on V4 it would
+    unembed each stream separately and return [positions, 4, vocab].
+
+    The published V4 lens is d_model=4096 — fit on one collapsed vector per
+    position — so the streams must be collapsed BEFORE the lens sees them (the
+    collapse weights depend on the streams, so it does not commute with the
+    J transport). We use the model's own read-out, `hc_head`: at the last
+    layer that is exactly what lm_head unembeds, and at earlier layers it keeps
+    the logit lens's meaning of "what the model would say if it stopped here".
+    The collapse happens on the recorder's copy; the block output the next
+    layer consumes is untouched. No-op on models whose residual is 3-D.
+
+    If the lens's provenance turns out to record a different collapse (e.g. the
+    next block's own `attn_hc` pre-mapping, or a plain mean over streams),
+    swap the one line marked below.
+    """
+    hc_head = getattr(getattr(hf, "model", None), "hc_head", None)
+    if hc_head is None:
+        return
+    import jlens.lens
+    import jlens.hooks
+
+    class CollapsingRecorder(jlens.hooks.ActivationRecorder):
+        def _make_hook(self, index):
+            store = super()._make_hook(index)
+
+            def hook(module, inputs, output):
+                store(module, inputs, output)
+                h = self.activations[index]
+                if h.dim() == 4:                       # [B, S, hc_mult, D]
+                    with torch.no_grad():
+                        self.activations[index] = hc_head(h)   # <- the collapse
+            return hook
+
+    jlens.lens.ActivationRecorder = CollapsingRecorder
+    print(f"[load_model] hyper-connection residual ({hf.config.hc_mult} streams): "
+          f"collapsing with model.hc_head before every lens readout")
+
+
 def load_model(spec: ModelSpec):
     """Load HF weights per `spec` and wrap them for the lens. Returns (model, hf, tok)."""
     describe_checkpoint(spec)
@@ -223,6 +270,7 @@ def load_model(spec: ModelSpec):
         spec.hf_id, trust_remote_code=spec.trust_remote_code
     )
     model = jlens.from_hf(hf, tok)
+    collapse_hyper_connection_streams(hf)
 
     # jlens's own encode() tokenizes with add_special_tokens=True (and forces
     # add_bos_token on). Our prompts are rendered chat templates that already
@@ -274,6 +322,13 @@ def check_provenance(spec: ModelSpec, kind: str = "j") -> dict:
         print(f"[provenance] model_id={prov_id!r}  target_layer={prov.get('target_layer')}  "
               f"n_prompts={prov.get('n_prompts')}  -> matches config" if prov_id else
               "[provenance] no model_id recorded in lens; can't auto-verify.")
+    # Everything else the lens file says about itself (fit settings, notes) —
+    # on DeepSeek V4 this is where a residual-stream collapse choice would show.
+    extra = {k: v for k, v in prov.items()
+             if k not in ("model_id", "target_layer", "n_prompts")
+             and not isinstance(v, torch.Tensor)}
+    if extra:
+        print(f"[provenance] other fields: {extra}")
     return prov
 
 

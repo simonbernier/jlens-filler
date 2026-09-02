@@ -180,6 +180,23 @@ fail fast on. If it OOMs, kill the instance inside the first hour and re-rent 8Ã
   MoE loader, fixed on `main` but not released as of 2026-09-02.
   `common.patch_fp8_tp_plan_bug` (called by `load_model`) works around it; if a
   later transformers release fixes it the shim does nothing.
+- **V4's residual is four parallel streams, not one.** The blocks use
+  manifold-constrained hyper-connections: block outputs are `[B, S, hc_mult=4, 4096]`,
+  and the model only collapses them to one vector where it reads them (inside each
+  block, and via `model.hc_head` before the final norm). jlens assumes `[B, S, D]` and
+  unembeds each stream separately, which surfaced as a `topk`/`int()` TypeError in the
+  smoke test. `common.collapse_hyper_connection_streams` (called by `load_model`)
+  collapses every recorded layer with `hc_head` before the lens sees it â€” the lens is
+  d_model=4096, so it was fit on collapsed vectors. The README of the lens repo says
+  "mHC residual, mHC coefficients detached" but not which collapse; `check_provenance`
+  now prints every extra field in the lens file so a recorded choice can be matched.
+  If it names a different one, change the single marked line in that function.
+- **`kernels` must be installed** (`pip install "kernels>=0.16,<0.17"`, now in
+  `requirements.txt`). transformers does not bundle the FP8 matmul: the first forward
+  pass fetches the Triton kernel `kernels-community/finegrained-fp8` from the Hub
+  through the `kernels` package, and without it the load succeeds but the smoke test
+  dies at `finegrained_fp8_linear` with "finegrained-fp8 kernel unavailable". The
+  fetch is a few MB into `HF_HOME` and happens once.
 - **Layer coverage:** the scripts iterate `lens.source_layers`, so they adapt to
   whatever the lens covers without being told.
 - **Verify the snapshot:** if HF resolves `deepseek-ai/DeepSeek-V4-Flash` to a revision

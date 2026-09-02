@@ -5,8 +5,11 @@ accelerate>=0.34            # device_map="auto" sharding across GPUs
 huggingface_hub>=0.25       # JacobianLens.from_pretrained downloads lens .pt from the Hub
 safetensors>=0.4
 
-# Quantization (needed for DeepSeek V4 Flash on rented GPUs; optional for the 4B dev model)
-bitsandbytes>=0.43          # 4-bit / 8-bit weight loading
+# Quantization
+kernels>=0.16,<0.17         # DeepSeek V4 Flash: transformers runs its FP8 block-quantized linears
+                            # through the Hub-hosted Triton kernel kernels-community/finegrained-fp8,
+                            # fetched by this package on first forward (range pinned by transformers 5.16)
+bitsandbytes>=0.43          # 4-bit / 8-bit weight loading for bf16 side models (gemma-27b); NOT DeepSeek
 
 # API access (stage 1: 10/11 via OpenRouter)
 python-dotenv>=1.0          # api_common loads OPENROUTER_API_KEY from a local .env
